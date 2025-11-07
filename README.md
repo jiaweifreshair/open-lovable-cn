@@ -64,7 +64,42 @@ Open [http://localhost:3000](http://localhost:3000)
 
 ## 🚀 Performance Optimization
 
-### For Chinese Users: CDN Acceleration
+### For Chinese Users
+
+#### 1. Chinese AI Models (国内 AI 模型)
+
+**Now supports Chinese AI models** including Qwen (通义千问), DeepSeek, Ernie (文心一言), and GLM!
+
+📖 **Full guide**: [docs/chinese-ai-models.md](docs/chinese-ai-models.md)
+
+**Quick Setup:**
+```env
+# .env.local
+OPENAI_API_KEY=your_qiniu_or_aliyun_key
+OPENAI_BASE_URL=https://api.qiniu.com/v1  # or Aliyun DashScope
+```
+
+**Available Models:**
+- 🇨🇳 通义千问 (Qwen Max/Plus/Turbo)
+- 🇨🇳 DeepSeek (Chat/Reasoner)
+- 🇨🇳 文心一言 (Ernie 4.0/3.5)
+- 🇨🇳 智谱 (GLM-4 Plus/Flash)
+
+**中文用户：国内 AI 模型支持**
+
+现已支持通义千问、DeepSeek、文心一言、智谱 GLM 等国内主流模型！
+
+📖 **完整配置指南**: [docs/chinese-ai-models.md](docs/chinese-ai-models.md)
+
+**快速配置：**
+- ✅ **零代码改动** - 仅需配置环境变量
+- ✅ **无需 VPN** - 国内服务器直连
+- ✅ **成本更低** - 国内模型价格实惠
+- ✅ **即插即用** - 完全兼容 OpenAI 接口
+
+---
+
+#### 2. CDN Acceleration (CDN 加速)
 
 If you're in China and experiencing slow Vercel Sandbox access, we recommend using CDN acceleration:
 

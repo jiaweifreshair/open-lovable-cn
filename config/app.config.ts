@@ -52,21 +52,59 @@ export const appConfig = {
   ai: {
     // Default AI model
     defaultModel: 'moonshotai/kimi-k2-instruct-0905',
-    
-    // Available models
+
+    // Available models (保留所有现有国际模型 + 新增国内模型选项)
     availableModels: [
+      // ========================================
+      // International Models (现有，保留不变)
+      // ========================================
       'openai/gpt-5',
       'moonshotai/kimi-k2-instruct-0905',
       'anthropic/claude-sonnet-4-20250514',
-      'google/gemini-2.0-flash-exp'
+      'google/gemini-2.0-flash-exp',
+
+      // ========================================
+      // Chinese Models (新增，可选)
+      // ========================================
+      // Note: To use these, configure OPENAI_BASE_URL in .env.local
+      // Example: OPENAI_BASE_URL=https://api.qiniu.com/v1
+
+      // Qiniu Cloud / Aliyun DashScope (通义千问系列)
+      'qwen-max',                    // 🇨🇳 通义千问 Max - 最强推理
+      'qwen-plus',                   // 🇨🇳 通义千问 Plus - 平衡性能
+      'qwen-turbo',                  // 🇨🇳 通义千问 Turbo - 快速响应
+
+      // DeepSeek (深度求索)
+      'deepseek-chat',               // 🇨🇳 DeepSeek Chat - 通用对话
+      'deepseek-reasoner',           // 🇨🇳 DeepSeek Reasoner - 推理增强
+
+      // Baidu (文心一言)
+      'ernie-4.0-turbo-8k',         // 🇨🇳 文心一言 4.0 Turbo
+      'ernie-3.5-8k',               // 🇨🇳 文心一言 3.5
+
+      // Zhipu AI (智谱)
+      'glm-4-plus',                 // 🇨🇳 智谱 GLM-4 Plus
+      'glm-4-flash',                // 🇨🇳 智谱 GLM-4 Flash
     ],
-    
-    // Model display names
+
+    // Model display names (显示名称，保留现有 + 新增国内模型)
     modelDisplayNames: {
+      // International Models (保留不变)
       'openai/gpt-5': 'GPT-5',
       'moonshotai/kimi-k2-instruct-0905': 'Kimi K2 (Groq)',
       'anthropic/claude-sonnet-4-20250514': 'Sonnet 4',
-      'google/gemini-2.0-flash-exp': 'Gemini 2.0 Flash (Experimental)'
+      'google/gemini-2.0-flash-exp': 'Gemini 2.0 Flash (Experimental)',
+
+      // Chinese Models (新增)
+      'qwen-max': '🇨🇳 通义千问 Max',
+      'qwen-plus': '🇨🇳 通义千问 Plus',
+      'qwen-turbo': '🇨🇳 通义千问 Turbo',
+      'deepseek-chat': '🇨🇳 DeepSeek Chat',
+      'deepseek-reasoner': '🇨🇳 DeepSeek 推理',
+      'ernie-4.0-turbo-8k': '🇨🇳 文心一言 4.0',
+      'ernie-3.5-8k': '🇨🇳 文心一言 3.5',
+      'glm-4-plus': '🇨🇳 智谱 GLM-4 Plus',
+      'glm-4-flash': '🇨🇳 智谱 GLM-4 Flash',
     } as Record<string, string>,
     
     // Model API configuration
