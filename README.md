@@ -62,6 +62,30 @@ pnpm dev  # or npm run dev / yarn dev
 
 Open [http://localhost:3000](http://localhost:3000)
 
+## 🚀 Performance Optimization
+
+### For Chinese Users: CDN Acceleration
+
+If you're in China and experiencing slow Vercel Sandbox access, we recommend using CDN acceleration:
+
+📖 **See detailed guide**: [docs/cdn-acceleration.md](docs/cdn-acceleration.md)
+
+**Quick Options:**
+- ✅ **Cloudflare CDN** (Free, Recommended) - 5 minutes setup
+- ✅ **Aliyun CDN** (Fast in China) - Requires domain filing
+- ✅ **Tencent Cloud CDN** (Fast in China) - Requires domain filing
+
+**中文用户：CDN 加速配置**
+
+如果您在中国访问 Vercel 沙箱较慢，建议配置 CDN 加速：
+
+📖 **详细配置指南**: [docs/cdn-acceleration.md](docs/cdn-acceleration.md)
+
+**快速选项：**
+- ✅ **Cloudflare CDN**（免费，推荐）- 5分钟配置
+- ✅ **阿里云 CDN**（国内快）- 需要域名备案
+- ✅ **腾讯云 CDN**（国内快）- 需要域名备案
+
 ## License
 
 MIT
