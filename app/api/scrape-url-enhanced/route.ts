@@ -1,11 +1,14 @@
 /**
  * 增强的网页爬取 API
- * 
- * 支持多种爬取方式：
+ *
+ * Phase 3B 升级：三层降级策略
  * 1. Firecrawl API（优先，带缓存加速）
- * 2. Playwright 无头浏览器（降级方案）
- * 
- * 自动降级策略：Firecrawl 不可用时自动切换到 Playwright
+ * 2. Crawlee 智能爬虫（自动选择 Cheerio 或 Playwright）
+ *    - Cheerio：静态页面，极快（20ms）
+ *    - Playwright：动态页面，强大（2s）
+ * 3. Playwright 无头浏览器（最终兜底）
+ *
+ * 自动降级策略：Firecrawl → Crawlee → Playwright
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -86,25 +89,37 @@ export async function POST(request: NextRequest) {
 
 /**
  * 生成成功消息
+ * Phase 3B 升级：新增 Cheerio 支持
  */
 function generateSuccessMessage(result: any): string {
   const scraper = result.scraper;
   const fallback = result.fallbackUsed;
   const cached = result.metadata?.cached;
-  
+  const responseTime = result.metadata?.responseTime;
+
   if (scraper === 'firecrawl') {
     if (cached) {
       return 'URL scraped successfully with Firecrawl (using cache for 500% faster performance)';
     }
     return 'URL scraped successfully with Firecrawl';
   }
-  
+
+  if (scraper === 'cheerio') {
+    const performanceNote = responseTime && responseTime < 1000
+      ? ` (ultra-fast: ${responseTime}ms)`
+      : '';
+    if (fallback) {
+      return `URL scraped successfully with Cheerio (fallback from Firecrawl)${performanceNote}`;
+    }
+    return `URL scraped successfully with Cheerio - static page optimized${performanceNote}`;
+  }
+
   if (scraper === 'playwright') {
     if (fallback) {
-      return 'URL scraped successfully with Playwright (fallback from Firecrawl)';
+      return 'URL scraped successfully with Playwright (fallback)';
     }
     return 'URL scraped successfully with Playwright';
   }
-  
+
   return 'URL scraped successfully';
 }

@@ -1,0 +1,82 @@
+# ============================================================================
+# Docker 构建上下文忽略文件
+# 排除不必要的文件以加快构建速度和减小镜像大小
+# ============================================================================
+
+# 依赖目录（会在 Docker 中重新安装）
+node_modules
+.pnpm-store
+.pnpm
+
+# Next.js 构建输出
+.next
+out
+
+# 开发和测试文件
+*.test.ts
+*.test.tsx
+*.spec.ts
+*.spec.tsx
+test-*.ts
+test-*.mjs
+__tests__
+coverage
+
+# 开发工具配置
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# 环境变量（敏感信息，通过环境变量传入）
+.env
+.env.local
+.env.development
+.env.production
+.env.test
+
+# 日志文件
+*.log
+logs
+npm-debug.log*
+pnpm-debug.log*
+
+# 操作系统文件
+.DS_Store
+Thumbs.db
+
+# 文档
+README.md
+CHANGELOG.md
+CONTRIBUTING.md
+LICENSE
+*.md
+docs
+
+# CI/CD
+.github
+.gitlab-ci.yml
+.travis.yml
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# 报告和临时文件
+PHASE*.md
+*.report.md
+.cache
+.temp
+tmp
+
+# Playwright 缓存（镜像已包含）
+playwright-report
+test-results
+.playwright

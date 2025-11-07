@@ -1,0 +1,103 @@
+# ============================================================================
+# Open Lovable - Docker Compose 配置
+# ============================================================================
+#
+# 快速部署三层降级爬虫系统
+#
+# 使用方法：
+#   docker compose up -d              # 启动服务
+#   docker compose logs -f            # 查看日志
+#   docker compose down               # 停止服务
+#   docker compose build --no-cache   # 重新构建
+#
+# ============================================================================
+
+version: '3.8'
+
+services:
+  # ============================================================================
+  # Open Lovable 主服务
+  # ============================================================================
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # 构建参数
+        NODE_ENV: production
+
+    image: open-lovable:latest
+    container_name: open-lovable
+
+    # 端口映射
+    ports:
+      - "3000:3000"
+
+    # 环境变量（从 .env.docker 文件加载）
+    env_file:
+      - .env.docker
+
+    # 环境变量（直接指定）
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - HOSTNAME=0.0.0.0
+      - NEXT_TELEMETRY_DISABLED=1
+
+    # 健康检查
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+    # 资源限制
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 2G
+
+    # 重启策略
+    restart: unless-stopped
+
+    # 日志配置
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    # 网络
+    networks:
+      - app-network
+
+    # 卷挂载（可选：持久化缓存）
+    volumes:
+      # Playwright 浏览器缓存（避免重复下载）
+      - playwright-cache:/ms-playwright
+      # Crawlee 存储（爬取结果临时存储）
+      - crawlee-storage:/app/storage
+
+# ============================================================================
+# 网络配置
+# ============================================================================
+networks:
+  app-network:
+    driver: bridge
+
+# ============================================================================
+# 卷配置
+# ============================================================================
+volumes:
+  # Playwright 浏览器缓存
+  playwright-cache:
+    driver: local
+
+  # Crawlee 存储
+  crawlee-storage:
+    driver: local
