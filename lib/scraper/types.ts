@@ -7,7 +7,7 @@
 /**
  * 爬虫类型枚举
  */
-export type ScraperType = 'firecrawl' | 'playwright';
+export type ScraperType = 'firecrawl' | 'playwright' | 'cheerio';
 
 /**
  * 爬虫配置选项
@@ -19,6 +19,8 @@ export interface ScraperOptions {
   timeout?: number;
   /** 是否阻止广告 */
   blockAds?: boolean;
+  /** 是否启用截图（默认 true） */
+  screenshot?: boolean;
   /** 是否全屏截图 */
   fullPageScreenshot?: boolean;
   /** 缓存最大时间（毫秒） */
