@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createGroq } from '@ai-sdk/groq';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAI } from '@ai-sdk/openai';
+import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { streamText } from 'ai';
 import type { SandboxState } from '@/types/sandbox';
@@ -42,6 +43,13 @@ const googleGenerativeAI = createGoogleGenerativeAI({
 const openai = createOpenAI({
   apiKey: process.env.AI_GATEWAY_API_KEY ?? process.env.OPENAI_API_KEY,
   baseURL: isUsingAIGateway ? aiGatewayBaseURL : process.env.OPENAI_BASE_URL,
+});
+
+// 中文模型兼容提供商（使用传统 Chat Completions API）
+const chineseModelProvider = createOpenAICompatible({
+  name: 'qiniu-ai',
+  apiKey: process.env.OPENAI_API_KEY || '',
+  baseURL: process.env.OPENAI_BASE_URL || 'https://api.qnaigc.com/v1',
 });
 
 // Helper function to analyze user preferences from conversation history
@@ -1217,10 +1225,16 @@ MORPH FAST APPLY MODE (EDIT-ONLY):
         const isGoogle = model.startsWith('google/');
         const isOpenAI = model.startsWith('openai/');
         const isKimiGroq = model === 'moonshotai/kimi-k2-instruct-0905';
-        const modelProvider = isAnthropic ? anthropic : 
-                              (isOpenAI ? openai : 
-                              (isGoogle ? googleGenerativeAI : 
-                              (isKimiGroq ? groq : groq)));
+
+        // 中文模型识别：通义千问、DeepSeek、智谱 GLM、Kimi
+        const isChineseModel = /^(qwen|deepseek|glm-|qwq-|kimi-)/.test(model);
+
+        // 中文模型使用兼容提供商（传统 Chat Completions API）
+        const modelProvider = isAnthropic ? anthropic :
+                              (isChineseModel ? chineseModelProvider :
+                              (isOpenAI ? openai :
+                              (isGoogle ? googleGenerativeAI :
+                              (isKimiGroq ? groq : groq))));
         
         // Fix model name transformation for different providers
         let actualModel: string;
@@ -1238,7 +1252,7 @@ MORPH FAST APPLY MODE (EDIT-ONLY):
           actualModel = model;
         }
 
-        console.log(`[generate-ai-code-stream] Using provider: ${isAnthropic ? 'Anthropic' : isGoogle ? 'Google' : isOpenAI ? 'OpenAI' : 'Groq'}, model: ${actualModel}`);
+        console.log(`[generate-ai-code-stream] Using provider: ${isAnthropic ? 'Anthropic' : isChineseModel ? 'Chinese Model (OpenAI Compatible)' : isGoogle ? 'Google' : isOpenAI ? 'OpenAI' : 'Groq'}, model: ${actualModel}`);
         console.log(`[generate-ai-code-stream] AI Gateway enabled: ${isUsingAIGateway}`);
         console.log(`[generate-ai-code-stream] Model string: ${model}`);
 

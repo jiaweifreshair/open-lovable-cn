@@ -64,27 +64,28 @@ export const appConfig = {
       'google/gemini-2.0-flash-exp',
 
       // ========================================
-      // Chinese Models (新增，可选)
+      // Chinese Models (新增，七牛云实际支持)
       // ========================================
       // Note: To use these, configure OPENAI_BASE_URL in .env.local
-      // Example: OPENAI_BASE_URL=https://api.qiniu.com/v1
+      // Example: OPENAI_BASE_URL=https://api.qnaigc.com/v1
 
-      // Qiniu Cloud / Aliyun DashScope (通义千问系列)
-      'qwen-max',                    // 🇨🇳 通义千问 Max - 最强推理
-      'qwen-plus',                   // 🇨🇳 通义千问 Plus - 平衡性能
+      // Qiniu Cloud - Qwen Series (通义千问系列)
+      'qwen3-max',                   // 🇨🇳 通义千问 3 Max - 最强推理
+      'qwen3-235b-a22b-instruct-2507',  // 🇨🇳 通义千问 3 235B - 旗舰版
       'qwen-turbo',                  // 🇨🇳 通义千问 Turbo - 快速响应
+      'qwq-plus',                    // 🇨🇳 QwQ Plus - 推理增强
 
       // DeepSeek (深度求索)
-      'deepseek-chat',               // 🇨🇳 DeepSeek Chat - 通用对话
-      'deepseek-reasoner',           // 🇨🇳 DeepSeek Reasoner - 推理增强
-
-      // Baidu (文心一言)
-      'ernie-4.0-turbo-8k',         // 🇨🇳 文心一言 4.0 Turbo
-      'ernie-3.5-8k',               // 🇨🇳 文心一言 3.5
+      'deepseek-v3.1',               // 🇨🇳 DeepSeek V3.1 - 最新版本
+      'deepseek-r1',                 // 🇨🇳 DeepSeek R1 - 推理模型
+      'deepseek-v3',                 // 🇨🇳 DeepSeek V3 - 通用对话
 
       // Zhipu AI (智谱)
-      'glm-4-plus',                 // 🇨🇳 智谱 GLM-4 Plus
-      'glm-4-flash',                // 🇨🇳 智谱 GLM-4 Flash
+      'glm-4.5',                     // 🇨🇳 智谱 GLM-4.5
+      'glm-4.5-air',                 // 🇨🇳 智谱 GLM-4.5 Air - 快速版
+
+      // Moonshot AI (月之暗面)
+      'kimi-k2',                     // 🇨🇳 Kimi K2 - 长文本处理
     ],
 
     // Model display names (显示名称，保留现有 + 新增国内模型)
@@ -95,16 +96,17 @@ export const appConfig = {
       'anthropic/claude-sonnet-4-20250514': 'Sonnet 4',
       'google/gemini-2.0-flash-exp': 'Gemini 2.0 Flash (Experimental)',
 
-      // Chinese Models (新增)
-      'qwen-max': '🇨🇳 通义千问 Max',
-      'qwen-plus': '🇨🇳 通义千问 Plus',
+      // Chinese Models - Qiniu Cloud (七牛云实际支持的模型)
+      'qwen3-max': '🇨🇳 通义千问 3 Max',
+      'qwen3-235b-a22b-instruct-2507': '🇨🇳 通义千问 3 235B',
       'qwen-turbo': '🇨🇳 通义千问 Turbo',
-      'deepseek-chat': '🇨🇳 DeepSeek Chat',
-      'deepseek-reasoner': '🇨🇳 DeepSeek 推理',
-      'ernie-4.0-turbo-8k': '🇨🇳 文心一言 4.0',
-      'ernie-3.5-8k': '🇨🇳 文心一言 3.5',
-      'glm-4-plus': '🇨🇳 智谱 GLM-4 Plus',
-      'glm-4-flash': '🇨🇳 智谱 GLM-4 Flash',
+      'qwq-plus': '🇨🇳 QwQ Plus 推理',
+      'deepseek-v3.1': '🇨🇳 DeepSeek V3.1',
+      'deepseek-r1': '🇨🇳 DeepSeek R1 推理',
+      'deepseek-v3': '🇨🇳 DeepSeek V3',
+      'glm-4.5': '🇨🇳 智谱 GLM-4.5',
+      'glm-4.5-air': '🇨🇳 智谱 GLM-4.5 Air',
+      'kimi-k2': '🇨🇳 Kimi K2',
     } as Record<string, string>,
     
     // Model API configuration
