@@ -359,6 +359,94 @@ function AISandboxPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shouldAutoGenerate, homeUrlInput, showHomeScreen]);
 
+  // 清理沙箱：页面关闭时自动清理，避免E2B收费
+  useEffect(() => {
+    const cleanupSandbox = async () => {
+      try {
+        console.log('[cleanup] Cleaning up sandbox on page unload...');
+        // 使用 sendBeacon 确保在页面卸载时也能发送请求
+        // 如果 sendBeacon 不可用，降级到普通 fetch
+        if (navigator.sendBeacon) {
+          navigator.sendBeacon('/api/kill-sandbox');
+        } else {
+          await fetch('/api/kill-sandbox', {
+            method: 'POST',
+            keepalive: true // 确保即使页面关闭也能完成请求
+          });
+        }
+      } catch (error) {
+        console.error('[cleanup] Failed to cleanup sandbox:', error);
+      }
+    };
+
+    // 监听页面卸载事件
+    const handleBeforeUnload = () => {
+      cleanupSandbox();
+    };
+
+    // 监听页面可见性变化（标签页切换、浏览器最小化）
+    const handleVisibilityChange = () => {
+      if (document.hidden && sandboxData) {
+        console.log('[cleanup] Page hidden, sandbox will auto-terminate by E2B timeout');
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // 组件卸载时清理
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      // 注意：组件卸载不一定是页面关闭，所以这里不清理沙箱
+    };
+  }, [sandboxData]);
+
+  // 心跳检测：每60秒发送一次心跳，防止沙箱被误判为超时
+  useEffect(() => {
+    // 只有在沙箱存在时才发送心跳
+    if (!sandboxData?.sandboxId) {
+      return;
+    }
+
+    const sendHeartbeat = async () => {
+      try {
+        const response = await fetch('/api/sandbox-heartbeat', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            sandboxId: sandboxData.sandboxId
+          })
+        });
+
+        if (!response.ok) {
+          console.error('[heartbeat] Failed to send heartbeat:', response.status);
+        } else {
+          console.log(`[heartbeat] 💓 Heartbeat sent for sandbox ${sandboxData.sandboxId}`);
+        }
+      } catch (error) {
+        console.error('[heartbeat] Error sending heartbeat:', error);
+      }
+    };
+
+    // 立即发送一次心跳（沙箱刚创建）
+    console.log(`[heartbeat] Starting heartbeat for sandbox ${sandboxData.sandboxId}`);
+    sendHeartbeat();
+
+    // 每60秒发送一次心跳
+    const heartbeatInterval = setInterval(() => {
+      sendHeartbeat();
+    }, 60 * 1000); // 60秒
+
+    // 清理定时器
+    return () => {
+      console.log(`[heartbeat] Stopping heartbeat for sandbox ${sandboxData.sandboxId}`);
+      clearInterval(heartbeatInterval);
+    };
+  }, [sandboxData?.sandboxId]);
+
   const updateStatus = (text: string, active: boolean) => {
     setStatus({ text, active });
   };
@@ -521,15 +609,18 @@ function AISandboxPage() {
     console.log('[createSandbox] Starting sandbox creation...');
     setLoading(true);
     setShowLoadingBackground(true);
-    updateStatus('Creating sandbox...', false);
+    updateStatus('Creating sandbox (this may take 30-40 seconds)...', false);
     setResponseArea([]);
     setScreenshotError(null);
-    
+
     try {
+      // E2B sandbox creation takes approximately 30-35 seconds
+      // Set timeout to 60 seconds to allow sufficient time
       const response = await fetch('/api/create-ai-sandbox-v2', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({})
+        body: JSON.stringify({}),
+        signal: AbortSignal.timeout(60000) // 60 second timeout
       });
       
       const data = await response.json();
@@ -588,8 +679,17 @@ Tip: I automatically detect and install npm packages from your code imports (lik
     } catch (error: any) {
       console.error('[createSandbox] Error:', error);
       updateStatus('Error', false);
-      log(`Failed to create sandbox: ${error.message}`, 'error');
-      addChatMessage(`Failed to create sandbox: ${error.message}`, 'system');
+
+      // Improve error messages for common issues
+      let errorMessage = error.message;
+      if (error.name === 'TimeoutError' || error.message.includes('timeout')) {
+        errorMessage = 'Sandbox creation timed out. This usually means E2B service is slow. Please try again in a moment.';
+      } else if (error.message.includes('fetch failed')) {
+        errorMessage = 'Network error connecting to E2B. Please check your internet connection and try again.';
+      }
+
+      log(`Failed to create sandbox: ${errorMessage}`, 'error');
+      addChatMessage(`Failed to create sandbox: ${errorMessage}`, 'system');
       throw error;
     } finally {
       setLoading(false);

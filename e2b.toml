@@ -1,0 +1,17 @@
+# E2B 模板配置文件
+#
+# 此文件由 `e2b template build` 自动生成并更新
+# 请勿手动修改 template_id 和 team_id
+
+# Dockerfile 路径
+dockerfile = "e2b.Dockerfile"
+
+# 启动命令（可选）
+# 当沙箱启动时自动执行
+# start_cmd = "cd /home/user/project && pnpm dev --host 0.0.0.0"
+
+# 模板 ID（构建后自动填充）
+# template_id = "your-template-id-will-be-here"
+
+# Team ID（构建后自动填充）
+# team_id = "your-team-id-will-be-here"

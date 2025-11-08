@@ -60,3 +60,6 @@ bun.lockb
 .env*.local
 test-*.ts
 storage/
+
+# Claude local settings
+.claude/*.local.json
