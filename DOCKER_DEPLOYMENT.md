@@ -87,25 +87,45 @@ cd open-lovable-cn
 
 ```bash
 # 复制环境变量模板
-cp .env.docker .env.docker.local
+cp .env.docker.example .env.docker
 
 # 编辑环境变量（替换真实的 API Keys）
-vi .env.docker.local
+vi .env.docker
 ```
 
 **必须配置的环境变量**:
 
 ```bash
-# Firecrawl API Key（必需）
+# Firecrawl API Key（必需 - 爬虫功能）
 FIRECRAWL_API_KEY=your_firecrawl_api_key
 
-# AI Provider（必需）
+# AI Provider（必需 - AI功能）
 OPENAI_API_KEY=your_openai_api_key
 OPENAI_BASE_URL=https://api.openai.com/v1
 
-# Sandbox Provider（可选）
+# E2B Sandbox（推荐 - 代码执行）
+SANDBOX_PROVIDER=e2b
+E2B_API_KEY=your_e2b_api_key
+```
+
+**E2B 沙箱配置（推荐）**:
+
+E2B 提供更稳定、易用的代码执行沙箱：
+
+- **获取 API Key**: https://e2b.dev
+- **优势**:
+  - 开箱即用，无需复杂配置
+  - 稳定的沙箱隔离
+  - 支持多种编程语言
+  - 无需 Vercel OIDC token
+
+**可选：Vercel 沙箱**:
+
+如果您更偏好 Vercel，需配置：
+
+```bash
 SANDBOX_PROVIDER=vercel
-VERCEL_OIDC_TOKEN=auto_generated
+VERCEL_OIDC_TOKEN=<通过 vercel env pull 获取>
 ```
 
 ### Step 3: 构建并启动
