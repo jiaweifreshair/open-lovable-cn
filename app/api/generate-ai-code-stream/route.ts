@@ -1365,7 +1365,31 @@ It's better to have 3 complete files than 10 incomplete files.`
           let currentMessages = [...streamOptions.messages];
           if (loopCount > 1) {
              console.log(`[generate-ai-code-stream] Starting continuation loop ${loopCount}`);
-             const lastChars = generatedCode.slice(-2000); // Provide last 2000 chars context
+
+             // 🔥 CRITICAL FIX: Parse already generated files to track progress
+             const generatedFiles: string[] = [];
+             const fileRegex = /<file path="([^"]+)">([\s\S]*?)(?:<\/file>|$)/g;
+             let match;
+             while ((match = fileRegex.exec(generatedCode)) !== null) {
+               generatedFiles.push(match[1]);
+             }
+
+             console.log(`[generate-ai-code-stream] 📊 Continuation ${loopCount}: ${generatedFiles.length} files generated so far`);
+             console.log(`[generate-ai-code-stream] 📋 Files: ${generatedFiles.join(', ')}`);
+
+             // 🔥 CRITICAL FIX: Check for missing required files (App.jsx, index.css)
+             const hasAppFile = generatedFiles.some(f => f.includes('App.jsx') || f.includes('App.tsx'));
+             const hasIndexCss = generatedFiles.some(f => f.includes('index.css'));
+             const hasComponents = generatedFiles.some(f => f.includes('/components/'));
+
+             let missingFilesReminder = '';
+             if (hasComponents && !hasAppFile) {
+               missingFilesReminder += '\n⚠️ CRITICAL: You have NOT yet generated App.jsx/App.tsx! You MUST generate it to complete the application.';
+             }
+             if (hasComponents && !hasIndexCss) {
+               missingFilesReminder += '\n⚠️ WARNING: You have NOT yet generated index.css! You should generate it for styling.';
+             }
+
              currentMessages = [
                ...streamOptions.messages,
                {
@@ -1373,8 +1397,19 @@ It's better to have 3 complete files than 10 incomplete files.`
                  content: generatedCode // Pre-fill conversation with what we have so far
                },
                {
-                 role: 'user', 
-                 content: `[SYSTEM: The previous response was truncated. Please continue exactly where you left off. Do not repeat code that was already generated. Start immediately with the next character.]`
+                 role: 'user',
+                 content: `[SYSTEM: The previous response was truncated. Please continue exactly where you left off.
+
+📊 Progress Summary:
+- Generated ${generatedFiles.length} files so far: ${generatedFiles.slice(0, 5).join(', ')}${generatedFiles.length > 5 ? '...' : ''}
+${missingFilesReminder}
+
+RULES:
+1. Do NOT repeat code that was already generated
+2. Continue from the exact point where you stopped
+3. If you were in the middle of a file, complete that file first
+4. Then generate any missing required files (especially App.jsx/App.tsx if missing)
+5. Start immediately with the next character - no explanations needed]`
                }
              ];
              // Update options with new messages
@@ -1864,7 +1899,40 @@ It's better to have 3 complete files than 10 incomplete files.`
             }
           }
         }
-        
+
+        // 🔥 UNIVERSAL FIX: Check for missing required files
+        // This detects cases where AI response was truncated before generating critical files
+        if (!isEdit) {  // Only check in initial generation mode
+          const hasAppFile = files.some(f =>
+            f.path === 'src/App.jsx' ||
+            f.path === 'src/App.tsx' ||
+            f.path === 'App.jsx' ||
+            f.path === 'App.tsx'
+          );
+
+          const hasIndexCss = files.some(f =>
+            f.path === 'src/index.css' ||
+            f.path === 'index.css'
+          );
+
+          const hasComponents = files.some(f =>
+            f.path.includes('/components/') &&
+            (f.path.endsWith('.jsx') || f.path.endsWith('.tsx'))
+          );
+
+          // Check for any missing required files
+          if (hasComponents) {
+            if (!hasAppFile) {
+              truncationWarnings.push(`Critical: App.jsx/App.tsx is missing but components were generated`);
+              console.warn('[generate-ai-code-stream] 🚨 CRITICAL: Missing App.jsx/App.tsx but has components');
+            }
+            if (!hasIndexCss) {
+              truncationWarnings.push(`Warning: index.css is missing - styling foundation may be incomplete`);
+              console.warn('[generate-ai-code-stream] ⚠️ Missing index.css but has components');
+            }
+          }
+        }
+
         // Handle truncation with automatic retry (if enabled in config)
         if (truncationWarnings.length > 0 && appConfig.codeApplication.enableTruncationRecovery) {
           console.warn('[generate-ai-code-stream] 🚨 Truncation detected, attempting to fix:', truncationWarnings);
@@ -1878,7 +1946,7 @@ It's better to have 3 complete files than 10 incomplete files.`
             message: `Detected ${truncationWarnings.length} incomplete code generation issues. Attempting to complete...`,
             warnings: truncationWarnings
           });
-          
+
           // Try to fix truncated files automatically
           const truncatedFiles: string[] = [];
           const fileRegex = /<file path="([^"]+)">([\s\S]*?)(?:<\/file>|$)/g;
@@ -1934,10 +2002,10 @@ It's better to have 3 complete files than 10 incomplete files.`
               try {
                 // Create a focused prompt to complete just this file
                 const completionPrompt = `Complete the following file that was truncated. Provide the FULL file content.
-                
+
 File: ${filePath}
 Original request: ${prompt}
-                
+
 Provide the complete file content without any truncation. Include all necessary imports, complete all functions, and close all tags properly.`;
                 
                 // Make a focused API call to complete this specific file
