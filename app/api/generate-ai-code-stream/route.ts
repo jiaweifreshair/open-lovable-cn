@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { geminiFetch } from '../../../lib/gemini-fetch';
 import { createGroq } from '@ai-sdk/groq';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAI } from '@ai-sdk/openai';
@@ -11,6 +12,21 @@ import { executeSearchPlan, formatSearchResultsForAI, selectTargetFile } from '@
 import { FileManifest } from '@/types/file-manifest';
 import type { ConversationState, ConversationMessage, ConversationEdit } from '@/types/conversation';
 import { appConfig } from '@/config/app.config';
+// 🆕 V2.0 结构化提示词引擎和多轮修复
+import {
+  generateStructuredSystemPrompt,
+  enhanceUserPrompt,
+  validateGeneratedCode,
+  extractThinkingProcess
+} from '@/lib/structured-prompt-engine';
+import {
+  extractFiles,
+  validateDependencies,
+  validateCompleteness,
+  autoFix,
+  assembleGeneratedCode,
+  type ValidationIssue
+} from '@/lib/multi-turn-fix-engine';
 
 // Force dynamic route to enable streaming
 export const dynamic = 'force-dynamic';
@@ -40,17 +56,40 @@ const googleGenerativeAI = createGoogleGenerativeAI({
   baseURL: isUsingAIGateway ? aiGatewayBaseURL : undefined,
 });
 
-const openai = createOpenAI({
-  apiKey: process.env.AI_GATEWAY_API_KEY ?? process.env.OPENAI_API_KEY,
-  baseURL: isUsingAIGateway ? aiGatewayBaseURL : process.env.OPENAI_BASE_URL,
+// Gemini GCA Provider (Google Cloud AI - OpenAI Compatible)
+// 使用 cs.imds.ai 或其他 OpenAI 兼容的 Gemini 代理服务
+// 正确的 endpoint: https://cs.imds.ai/api/v1 (不是 /gemini)
+const isUsingGeminiGCA = !!process.env.CODE_ASSIST_ENDPOINT && !!process.env.GOOGLE_CLOUD_ACCESS_TOKEN;
+
+console.log('[DEBUG] Gemini GCA Setup:', {
+  envEndpoint: process.env.CODE_ASSIST_ENDPOINT,
+  hasToken: !!process.env.GOOGLE_CLOUD_ACCESS_TOKEN
 });
 
-// 中文模型兼容提供商（使用传统 Chat Completions API）
-const chineseModelProvider = createOpenAICompatible({
-  name: 'qiniu-ai',
+const geminiGCAProvider = createOpenAICompatible({
+  name: 'gemini-gca',
+  apiKey: process.env.GOOGLE_CLOUD_ACCESS_TOKEN || '',
+  baseURL: 'https://cs.imds.ai/api/v1',
+  fetch: geminiFetch,
+});
+
+console.log('[generate-ai-code-stream] Gemini GCA config:', {
+  isUsingGeminiGCA,
+  endpoint: process.env.CODE_ASSIST_ENDPOINT ? 'configured' : 'not set',
+});
+
+// 七牛云AI / DashScope (阿里云通义千问) - 使用OpenAI Compatible Provider
+// createOpenAI v2.x有bug，会错误地调用/responses端点
+// createOpenAICompatible专门为非官方OpenAI API设计，正确调用/chat/completions端点
+const qiniuProvider = createOpenAICompatible({
+  name: 'qiniu',
   apiKey: process.env.OPENAI_API_KEY || '',
   baseURL: process.env.OPENAI_BASE_URL || 'https://api.qnaigc.com/v1',
 });
+
+// OpenAI provider 使用同一个七牛云provider
+// 因为.env.local中配置的就是七牛云API，统一使用相同provider避免路由混乱
+const openai = qiniuProvider;
 
 // Helper function to analyze user preferences from conversation history
 function analyzeUserPreferences(messages: ConversationMessage[]): {
@@ -65,6 +104,9 @@ function analyzeUserPreferences(messages: ConversationMessage[]): {
   let comprehensiveEditCount = 0;
   
   userMessages.forEach(msg => {
+    // ✅ 防御性编程：跳过没有content或content不是字符串的消息
+    if (!msg.content || typeof msg.content !== 'string') return;
+
     const content = msg.content.toLowerCase();
     
     // Check for targeted edit patterns
@@ -98,7 +140,7 @@ declare global {
 
 export async function POST(request: NextRequest) {
   try {
-    const { prompt, model = 'openai/gpt-oss-20b', context, isEdit = false } = await request.json();
+    const { prompt, model = 'deepseek-v3', context, isEdit = false } = await request.json();
     
     console.log('[generate-ai-code-stream] Received request:');
     console.log('[generate-ai-code-stream] - prompt:', prompt);
@@ -165,9 +207,21 @@ export async function POST(request: NextRequest) {
     const encoder = new TextEncoder();
     const stream = new TransformStream();
     const writer = stream.writable.getWriter();
-    
-    // Function to send progress updates with flushing
-    const sendProgress = async (data: any) => {
+
+    // Heartbeat Mechanism: Send a comment every 15 seconds to keep the connection alive
+    // Heartbeat Mechanism: Send a comment every 15 seconds to keep the connection alive
+    const heartbeatInterval = setInterval(async () => {
+      try {
+        // Send a keep-alive comment that won't affect the JSON parsing
+        // SSE format: ": comment"
+        await writer.write(encoder.encode(': keep-alive\n\n'));
+      } catch (e) {
+        console.error('[generate-ai-code-stream] Heartbeat failed:', e);
+        clearInterval(heartbeatInterval);
+      }
+    }, 15000);
+
+        const sendProgress = async (data: any) => {
       const message = `data: ${JSON.stringify(data)}\n\n`;
       try {
         await writer.write(encoder.encode(message));
@@ -583,137 +637,59 @@ Remember: You are a SURGEON making a precise incision, not an artist repainting 
           }
         }
         
-        // Build system prompt with conversation awareness
-        let systemPrompt = `You are an expert React developer with perfect memory of the conversation. You maintain context across messages and remember scraped websites, generated components, and applied code. Generate clean, modern React code for Vite applications.
-${conversationContext}
+        // 🆕 V2.0: 使用结构化提示词引擎
+        // 构建提示词上下文
+        const promptContext = {
+          isEdit,
+          currentFiles: editContext?.primaryFiles || [],
+          editContext: editContext ? {
+            primaryFiles: editContext.primaryFiles,
+            editIntent: {
+              type: editContext.editIntent?.type || 'MODIFY',
+              description: editContext.editIntent?.description || '代码修改'
+            }
+          } : undefined,
+          conversationSummary: conversationContext || undefined,
+          morphEnabled: Boolean(isEdit && process.env.MORPH_API_KEY)
+        };
 
-🚨 CRITICAL RULES - YOUR MOST IMPORTANT INSTRUCTIONS:
-1. **DO EXACTLY WHAT IS ASKED - NOTHING MORE, NOTHING LESS**
-   - Don't add features not requested
-   - Don't fix unrelated issues
-   - Don't improve things not mentioned
-2. **CHECK App.jsx FIRST** - ALWAYS see what components exist before creating new ones
-3. **NAVIGATION LIVES IN Header.jsx** - Don't create Nav.jsx if Header exists with nav
-4. **USE STANDARD TAILWIND CLASSES ONLY**:
-   - ✅ CORRECT: bg-white, text-black, bg-blue-500, bg-gray-100, text-gray-900
-   - ❌ WRONG: bg-background, text-foreground, bg-primary, bg-muted, text-secondary
-   - Use ONLY classes from the official Tailwind CSS documentation
-5. **FILE COUNT LIMITS**:
-   - Simple style/text change = 1 file ONLY
-   - New component = 2 files MAX (component + parent)
-   - If >3 files, YOU'RE DOING TOO MUCH
-6. **DO NOT CREATE SVGs FROM SCRATCH**:
-   - NEVER generate custom SVG code unless explicitly asked
-   - Use existing icon libraries (lucide-react, heroicons, etc.)
-   - Or use placeholder elements/text if icons are not critical
-   - Only create custom SVGs when user specifically requests "create an SVG" or "draw an SVG"
+        // 生成结构化系统提示词
+        let systemPrompt = generateStructuredSystemPrompt(promptContext);
 
-COMPONENT RELATIONSHIPS (CHECK THESE FIRST):
-- Navigation usually lives INSIDE Header.jsx, not separate Nav.jsx
-- Logo is typically in Header, not standalone
-- Footer often contains nav links already
-- Menu/Hamburger is part of Header, not separate
+        // 添加对话上下文
+        if (conversationContext) {
+          systemPrompt += `\n\n## 对话历史\n${conversationContext}`;
+        }
 
-PACKAGE USAGE RULES:
-- DO NOT use react-router-dom unless user explicitly asks for routing
-- For simple nav links in a single-page app, use scroll-to-section or href="#"
-- Only add routing if building a multi-page application
-- Common packages are auto-installed from your imports
+        console.log('[generate-ai-code-stream] V2.0 结构化提示词已启用');
+        console.log('[generate-ai-code-stream] - isEdit:', isEdit);
+        console.log('[generate-ai-code-stream] - morphEnabled:', promptContext.morphEnabled);
+        console.log('[generate-ai-code-stream] - editContext:', editContext ? 'yes' : 'no');
 
-WEBSITE CLONING REQUIREMENTS:
-When recreating/cloning a website, you MUST include:
-1. **Header with Navigation** - Usually Header.jsx containing nav
-2. **Hero Section** - The main landing area (Hero.jsx)
-3. **Main Content Sections** - Features, Services, About, etc.
-4. **Footer** - Contact info, links, copyright (Footer.jsx)
-5. **App.jsx** - Main app component that imports and uses all components
+        // 编辑模式时添加额外的精准编辑规则
+        if (isEdit) {
+          systemPrompt += `
 
-${isEdit ? `CRITICAL: THIS IS AN EDIT TO AN EXISTING APPLICATION
+## 编辑模式精准规则（补充）
 
-YOU MUST FOLLOW THESE EDIT RULES:
-0. NEVER create tailwind.config.js, vite.config.js, package.json, or any other config files - they already exist!
-1. DO NOT regenerate the entire application
-2. DO NOT create files that already exist (like App.jsx, index.css, tailwind.config.js)
-3. ONLY edit the EXACT files needed for the requested change - NO MORE, NO LESS
-4. If the user says "update the header", ONLY edit the Header component - DO NOT touch Footer, Hero, or any other components
-5. If the user says "change the color", ONLY edit the relevant style or component file - DO NOT "improve" other parts
-6. If you're unsure which file to edit, choose the SINGLE most specific one related to the request
-7. IMPORTANT: When adding new components or libraries:
-   - Create the new component file
-   - UPDATE ONLY the parent component that will use it
-   - Example: Adding a Newsletter component means:
-     * Create Newsletter.jsx
-     * Update ONLY the file that will use it (e.g., Footer.jsx OR App.jsx) - NOT both
-8. When adding npm packages:
-   - Import them ONLY in the files where they're actually used
-   - The system will auto-install missing packages
+### 文件修改限制
+- 简单修改（颜色、文字）= 最多1个文件
+- 添加新组件 = 最多2个文件（新组件 + 父组件）
+- 超过3个文件 = 你做的太多了！
 
-CRITICAL FILE MODIFICATION RULES - VIOLATION = FAILURE:
-- **NEVER TRUNCATE FILES** - Always return COMPLETE files with ALL content
-- **NO ELLIPSIS (...)** - Include every single line of code, no skipping
-- Files MUST be complete and runnable - include ALL imports, functions, JSX, and closing tags
-- Count the files you're about to generate
-- If the user asked to change ONE thing, you should generate ONE file (or at most two if adding a new component)
-- DO NOT "fix" or "improve" files that weren't mentioned in the request
-- DO NOT update multiple components when only one was requested
-- DO NOT add features the user didn't ask for
-- RESIST the urge to be "helpful" by updating related files
-
-CRITICAL: DO NOT REDESIGN OR REIMAGINE COMPONENTS
-- "update" means make a small change, NOT redesign the entire component
-- "change X to Y" means ONLY change X to Y, nothing else
-- "fix" means repair what's broken, NOT rewrite everything
-- "remove X" means delete X from the existing file, NOT create a new file
-- "delete X" means remove X from where it currently exists
-- Preserve ALL existing functionality and design unless explicitly asked to change it
-
-NEVER CREATE NEW FILES WHEN THE USER ASKS TO REMOVE/DELETE SOMETHING
-If the user says "remove X", you must:
-1. Find which existing file contains X
-2. Edit that file to remove X
-3. DO NOT create any new files
-
+### 目标文件信息
 ${editContext ? `
-TARGETED EDIT MODE ACTIVE
-- Edit Type: ${editContext.editIntent.type}
-- Confidence: ${editContext.editIntent.confidence}
-- Files to Edit: ${editContext.primaryFiles.join(', ')}
+- 编辑类型: ${editContext.editIntent?.type || 'MODIFY'}
+- 置信度: ${editContext.editIntent?.confidence || 0.8}
+- 目标文件: ${editContext.primaryFiles?.join(', ') || '待确定'}
 
-🚨 CRITICAL RULE - VIOLATION WILL RESULT IN FAILURE 🚨
-YOU MUST ***ONLY*** GENERATE THE FILES LISTED ABOVE!
+🚨 重要：只生成上面列出的文件！
+` : '已存在的文件在上下文中提供'}
+`;
+        }
 
-ABSOLUTE REQUIREMENTS:
-1. COUNT the files in "Files to Edit" - that's EXACTLY how many files you must generate
-2. If "Files to Edit" shows ONE file, generate ONLY that ONE file
-3. DO NOT generate App.jsx unless it's EXPLICITLY listed in "Files to Edit"
-4. DO NOT generate ANY components that aren't listed in "Files to Edit"
-5. DO NOT "helpfully" update related files
-6. DO NOT fix unrelated issues you notice
-7. DO NOT improve code quality in files not being edited
-8. DO NOT add bonus features
-
-EXAMPLE VIOLATIONS (THESE ARE FAILURES):
-❌ User says "update the hero" → You update Hero, Header, Footer, and App.jsx
-❌ User says "change header color" → You redesign the entire header
-❌ User says "fix the button" → You update multiple components
-❌ Files to Edit shows "Hero.jsx" → You also generate App.jsx "to integrate it"
-❌ Files to Edit shows "Header.jsx" → You also update Footer.jsx "for consistency"
-
-CORRECT BEHAVIOR (THIS IS SUCCESS):
-✅ User says "update the hero" → You ONLY edit Hero.jsx with the requested change
-✅ User says "change header color" → You ONLY change the color in Header.jsx
-✅ User says "fix the button" → You ONLY fix the specific button issue
-✅ Files to Edit shows "Hero.jsx" → You generate ONLY Hero.jsx
-✅ Files to Edit shows "Header.jsx, Nav.jsx" → You generate EXACTLY 2 files: Header.jsx and Nav.jsx
-
-THE AI INTENT ANALYZER HAS ALREADY DETERMINED THE FILES.
-DO NOT SECOND-GUESS IT.
-DO NOT ADD MORE FILES.
-ONLY OUTPUT THE EXACT FILES LISTED IN "Files to Edit".
-` : ''}
-
-VIOLATION OF THESE RULES WILL RESULT IN FAILURE!
-` : ''}
+        // 保留增量更新规则
+        systemPrompt += `
 
 CRITICAL INCREMENTAL UPDATE RULES:
 - When the user asks for additions or modifications (like "add a videos page", "create a new component", "update the header"):
@@ -1224,35 +1200,56 @@ MORPH FAST APPLY MODE (EDIT-ONLY):
         const isAnthropic = model.startsWith('anthropic/');
         const isGoogle = model.startsWith('google/');
         const isOpenAI = model.startsWith('openai/');
-        const isKimiGroq = model === 'moonshotai/kimi-k2-instruct-0905';
+        const isKimiGroq = model.startsWith('kimi-');
 
-        // 中文模型识别：通义千问、DeepSeek、智谱 GLM、Kimi
-        const isChineseModel = /^(qwen|deepseek|glm-|qwq-|kimi-)/.test(model);
+        // Gemini GCA 模型识别：gemini- 开头且配置了 GCA 环境变量
+        // 支持模型如：gemini-3-pro-preview, gemini-2.0-flash-exp 等
+        const isGeminiGCA = model.startsWith('gemini-') && isUsingGeminiGCA;
 
-        // 中文模型使用兼容提供商（传统 Chat Completions API）
+        // 中文模型识别：通义千问、DeepSeek、智谱 GLM、Kimi、Moonshot、gpt-oss-20b
+        // 注意：gpt-oss-20b 是七牛云的开源模型，必须使用七牛云provider
+        const isChineseModel = /^(qwen|deepseek|glm-|qwq-|kimi-|moonshotai\/|gpt-oss)/.test(model);
+
+        // 模型提供商路由优先级：
+        // 1. Anthropic (Claude) - anthropic/ 前缀
+        // 2. Gemini GCA (cs.imds.ai) - gemini- 前缀且配置了 GCA 环境变量
+        // 3. 中文模型 (七牛云) - qwen/deepseek/glm 等
+        // 4. OpenAI (GPT) - openai/ 前缀
+        // 5. Google (原生 Gemini) - google/ 前缀
+        // 6. 默认使用七牛云 provider
         const modelProvider = isAnthropic ? anthropic :
-                              (isChineseModel ? chineseModelProvider :
+                              (isGeminiGCA ? geminiGCAProvider :
+                              (isChineseModel ? qiniuProvider :
                               (isOpenAI ? openai :
-                              (isGoogle ? googleGenerativeAI :
-                              (isKimiGroq ? groq : groq))));
-        
+                              (isGoogle ? googleGenerativeAI : qiniuProvider))));
+
         // Fix model name transformation for different providers
         let actualModel: string;
         if (isAnthropic) {
           actualModel = model.replace('anthropic/', '');
+        } else if (isGeminiGCA) {
+          // Gemini GCA 使用完整模型名，如 gemini-3-pro-preview
+          actualModel = model;
         } else if (isOpenAI) {
           actualModel = model.replace('openai/', '');
-        } else if (isKimiGroq) {
-          // Kimi on Groq - use full model string
-          actualModel = 'moonshotai/kimi-k2-instruct-0905';
         } else if (isGoogle) {
-          // Google uses specific model names - convert our naming to theirs  
+          // Google uses specific model names - convert our naming to theirs
           actualModel = model.replace('google/', '');
+        } else if (isChineseModel) {
+          // 中文模型保持原始名称（七牛云provider支持这些格式）
+          // 包括: qwen, deepseek, glm-, qwq-, kimi-, moonshotai/
+          actualModel = model;
         } else {
           actualModel = model;
         }
 
-        console.log(`[generate-ai-code-stream] Using provider: ${isAnthropic ? 'Anthropic' : isChineseModel ? 'Chinese Model (OpenAI Compatible)' : isGoogle ? 'Google' : isOpenAI ? 'OpenAI' : 'Groq'}, model: ${actualModel}`);
+        // 确定 provider 名称用于日志
+        const providerName = isAnthropic ? 'Anthropic' :
+                             isGeminiGCA ? 'Gemini GCA (cs.imds.ai)' :
+                             isChineseModel ? 'Chinese Model (OpenAI Compatible)' :
+                             isGoogle ? 'Google' :
+                             isOpenAI ? 'OpenAI' : 'Groq';
+        console.log(`[generate-ai-code-stream] Using provider: ${providerName}, model: ${actualModel}`);
         console.log(`[generate-ai-code-stream] AI Gateway enabled: ${isUsingAIGateway}`);
         console.log(`[generate-ai-code-stream] Model string: ${model}`);
 
@@ -1296,6 +1293,9 @@ Examples of CORRECT CODE (ALWAYS DO THIS):
 ✅ const title = "Welcome to our application"
 ✅ import { useState, useEffect, useCallback } from 'react'
 
+// Set maximum execution time to 5 minutes
+export const maxDuration = 300;
+
 REMEMBER: It's better to generate fewer COMPLETE files than many INCOMPLETE files.`
             },
             { 
@@ -1319,7 +1319,7 @@ If you're running out of space, generate FEWER files but make them COMPLETE.
 It's better to have 3 complete files than 10 incomplete files.`
             }
           ],
-          maxTokens: 8192, // Reduce to ensure completion
+                    maxTokens: 30000,
           stopSequences: [] // Don't stop early
           // Note: Neither Groq nor Anthropic models support tool/function calling in this context
           // We use XML tags for package detection instead
@@ -1339,62 +1339,6 @@ It's better to have 3 complete files than 10 incomplete files.`
           };
         }
         
-        let result;
-        let retryCount = 0;
-        const maxRetries = 2;
-        
-        while (retryCount <= maxRetries) {
-          try {
-            result = await streamText(streamOptions);
-            break; // Success, exit retry loop
-          } catch (streamError: any) {
-            console.error(`[generate-ai-code-stream] Error calling streamText (attempt ${retryCount + 1}/${maxRetries + 1}):`, streamError);
-            
-            // Check if this is a Groq service unavailable error
-            const isGroqServiceError = isKimiGroq && streamError.message?.includes('Service unavailable');
-            const isRetryableError = streamError.message?.includes('Service unavailable') || 
-                                    streamError.message?.includes('rate limit') ||
-                                    streamError.message?.includes('timeout');
-            
-            if (retryCount < maxRetries && isRetryableError) {
-              retryCount++;
-              console.log(`[generate-ai-code-stream] Retrying in ${retryCount * 2} seconds...`);
-              
-              // Send progress update about retry
-              await sendProgress({ 
-                type: 'info', 
-                message: `Service temporarily unavailable, retrying (attempt ${retryCount + 1}/${maxRetries + 1})...` 
-              });
-              
-              // Wait before retry with exponential backoff
-              await new Promise(resolve => setTimeout(resolve, retryCount * 2000));
-              
-              // If Groq fails, try switching to a fallback model
-              if (isGroqServiceError && retryCount === maxRetries) {
-                console.log('[generate-ai-code-stream] Groq service unavailable, falling back to GPT-4');
-                streamOptions.model = openai('gpt-4-turbo');
-                actualModel = 'gpt-4-turbo';
-              }
-            } else {
-              // Final error, send to user
-              await sendProgress({ 
-                type: 'error', 
-                message: `Failed to initialize ${isGoogle ? 'Gemini' : isAnthropic ? 'Claude' : isOpenAI ? 'GPT-5' : isKimiGroq ? 'Kimi (Groq)' : 'Groq'} streaming: ${streamError.message}` 
-              });
-              
-              // If this is a Google model error, provide helpful info
-              if (isGoogle) {
-                await sendProgress({ 
-                  type: 'info', 
-                  message: 'Tip: Make sure your GEMINI_API_KEY is set correctly and has proper permissions.' 
-                });
-              }
-              
-              throw streamError;
-            }
-          }
-        }
-        
         // Stream the response and parse in real-time
         let generatedCode = '';
         let currentFile = '';
@@ -1407,115 +1351,218 @@ It's better to have 3 complete files than 10 incomplete files.`
         // Buffer for incomplete tags
         let tagBuffer = '';
         
-        // Stream the response and parse for packages in real-time
-        for await (const textPart of result?.textStream || []) {
-          const text = textPart || '';
-          generatedCode += text;
-          currentFile += text;
+        let loopCount = 0;
+        const maxLoops = 5;
+        let continueGeneration = false;
+
+        do {
+          loopCount++;
+          let result;
+          let retryCount = 0;
+          const maxRetries = 2;
           
-          // Combine with buffer for tag detection
-          const searchText = tagBuffer + text;
-          
-          // Log streaming chunks to console
-          process.stdout.write(text);
-          
-          // Check if we're entering or leaving a tag
-          const hasOpenTag = /<(file|package|packages|explanation|command|structure|template)\b/.test(text);
-          const hasCloseTag = /<\/(file|package|packages|explanation|command|structure|template)>/.test(text);
-          
-          if (hasOpenTag) {
-            // Send any buffered conversational text before the tag
-            if (conversationalBuffer.trim() && !isInTag) {
-              await sendProgress({ 
-                type: 'conversation', 
-                text: conversationalBuffer.trim()
-              });
-              conversationalBuffer = '';
+          // Update prompt for continuation if needed
+          let currentMessages = [...streamOptions.messages];
+          if (loopCount > 1) {
+             console.log(`[generate-ai-code-stream] Starting continuation loop ${loopCount}`);
+             const lastChars = generatedCode.slice(-2000); // Provide last 2000 chars context
+             currentMessages = [
+               ...streamOptions.messages,
+               {
+                 role: 'assistant',
+                 content: generatedCode // Pre-fill conversation with what we have so far
+               },
+               {
+                 role: 'user', 
+                 content: `[SYSTEM: The previous response was truncated. Please continue exactly where you left off. Do not repeat code that was already generated. Start immediately with the next character.]`
+               }
+             ];
+             // Update options with new messages
+             streamOptions.messages = currentMessages;
+          }
+
+          while (retryCount <= maxRetries) {
+            try {
+              result = await streamText(streamOptions);
+              break; // Success, exit retry loop
+            } catch (streamError: any) {
+              console.error(`[generate-ai-code-stream] Error calling streamText (attempt ${retryCount + 1}/${maxRetries + 1}):`, streamError);
+              
+              // Check if this is a Groq service unavailable error
+              const isGroqServiceError = isKimiGroq && streamError.message?.includes('Service unavailable');
+              const isRetryableError = streamError.message?.includes('Service unavailable') || 
+                                      streamError.message?.includes('rate limit') ||
+                                      streamError.message?.includes('timeout');
+              
+              if (retryCount < maxRetries && isRetryableError) {
+                retryCount++;
+                console.log(`[generate-ai-code-stream] Retrying in ${retryCount * 2} seconds...`);
+                
+                // Send progress update about retry
+                await sendProgress({ 
+                  type: 'info', 
+                  message: `Service temporarily unavailable, retrying (attempt ${retryCount + 1}/${maxRetries + 1})...` 
+                });
+                
+                // Wait before retry with exponential backoff
+                await new Promise(resolve => setTimeout(resolve, retryCount * 2000));
+                
+                // If Groq fails, try switching to a fallback model
+                if (isGroqServiceError && retryCount === maxRetries) {
+                  console.log('[generate-ai-code-stream] Groq service unavailable, falling back to GPT-4');
+                  streamOptions.model = openai('gpt-4-turbo');
+                  actualModel = 'gpt-4-turbo';
+                }
+              } else {
+                // Final error, send to user
+                await sendProgress({ 
+                  type: 'error', 
+                  message: `Failed to initialize ${isGeminiGCA ? 'Gemini GCA' : isGoogle ? 'Gemini' : isAnthropic ? 'Claude' : isOpenAI ? 'GPT-5' : isKimiGroq ? 'Kimi (Groq)' : 'Groq'} streaming: ${streamError.message}` 
+                });
+                
+                // If this is a Google/Gemini model error, provide helpful info
+                if (isGeminiGCA) {
+                  await sendProgress({
+                    type: 'info',
+                    message: 'Tip: Make sure CODE_ASSIST_ENDPOINT and GOOGLE_CLOUD_ACCESS_TOKEN are set correctly.'
+                  });
+                } else if (isGoogle) {
+                  await sendProgress({
+                    type: 'info',
+                    message: 'Tip: Make sure your GEMINI_API_KEY is set correctly and has proper permissions.'
+                  });
+                }
+                
+                throw streamError;
+              }
             }
-            isInTag = true;
-          }
-          
-          if (hasCloseTag) {
-            isInTag = false;
-          }
-          
-          // If we're not in a tag, buffer as conversational text
-          if (!isInTag && !hasOpenTag) {
-            conversationalBuffer += text;
           }
           
           // Stream the raw text for live preview
-          await sendProgress({ 
-            type: 'stream', 
-            text: text,
-            raw: true 
-          });
-          
-          // Debug: Log every 100 characters streamed
-          if (generatedCode.length % 100 < text.length) {
-            console.log(`[generate-ai-code-stream] Streamed ${generatedCode.length} chars`);
-          }
-          
-          // Check for package tags in buffered text (ONLY for edits, not initial generation)
-          let lastIndex = 0;
-          if (isEdit) {
-            const packageRegex = /<package>([^<]+)<\/package>/g;
-            let packageMatch;
+          for await (const textPart of result?.textStream || []) {
+            const text = textPart || '';
+            generatedCode += text;
+            currentFile += text;
             
-            while ((packageMatch = packageRegex.exec(searchText)) !== null) {
-              const packageName = packageMatch[1].trim();
-              if (packageName && !packagesToInstall.includes(packageName)) {
-                packagesToInstall.push(packageName);
-                console.log(`[generate-ai-code-stream] Package detected: ${packageName}`);
+            // Combine with buffer for tag detection
+            const searchText = tagBuffer + text;
+            
+            // Log streaming chunks to console
+            process.stdout.write(text);
+            
+            // Check if we're entering or leaving a tag
+            const hasOpenTag = /<(file|package|packages|explanation|command|structure|template)\b/.test(text);
+            const hasCloseTag = /<\/(file|package|packages|explanation|command|structure|template)>/.test(text);
+            
+            if (hasOpenTag) {
+              // Send any buffered conversational text before the tag
+              if (conversationalBuffer.trim() && !isInTag) {
                 await sendProgress({ 
-                  type: 'package', 
-                  name: packageName,
-                  message: `Package detected: ${packageName}`
+                  type: 'conversation', 
+                  text: conversationalBuffer.trim()
+                });
+                conversationalBuffer = '';
+              }
+              isInTag = true;
+            }
+            
+            if (hasCloseTag) {
+              isInTag = false;
+            }
+            
+            // If we're not in a tag, buffer as conversational text
+            if (!isInTag && !hasOpenTag) {
+              conversationalBuffer += text;
+            }
+            
+            // Stream the raw text for live preview
+            await sendProgress({ 
+              type: 'stream', 
+              text: text,
+              raw: true 
+            });
+            
+            // Debug: Log every 100 characters streamed
+            if (generatedCode.length % 100 < text.length) {
+              console.log(`[generate-ai-code-stream] Streamed ${generatedCode.length} chars`);
+            }
+            
+            // Check for package tags in buffered text (ONLY for edits, not initial generation)
+            let lastIndex = 0;
+            if (isEdit) {
+              const packageRegex = /<package>([^<]+)<\/package>/g;
+              let packageMatch;
+              
+              while ((packageMatch = packageRegex.exec(searchText)) !== null) {
+                const packageName = packageMatch[1].trim();
+                if (packageName && !packagesToInstall.includes(packageName)) {
+                  packagesToInstall.push(packageName);
+                  console.log(`[generate-ai-code-stream] Package detected: ${packageName}`);
+                  await sendProgress({ 
+                    type: 'package', 
+                    name: packageName,
+                    message: `Package detected: ${packageName}`
+                  });
+                }
+                lastIndex = packageMatch.index + packageMatch[0].length;
+              }
+            }
+            
+            // Keep unmatched portion in buffer for next iteration
+            tagBuffer = searchText.substring(Math.max(0, lastIndex - 50)); // Keep last 50 chars
+            
+            // Check for file boundaries
+            if (text.includes('<file path="')) {
+              const pathMatch = text.match(/<file path="([^"]+)"/);
+              if (pathMatch) {
+                currentFilePath = pathMatch[1];
+                isInFile = true;
+                currentFile = text;
+              }
+            }
+            
+            // Check for file end
+            if (isInFile && currentFile.includes('</file>')) {
+              isInFile = false;
+              
+              // Send component progress update
+              if (currentFilePath.includes('components/')) {
+                componentCount++;
+                const componentName = currentFilePath.split('/').pop()?.replace('.jsx', '') || 'Component';
+                await sendProgress({ 
+                  type: 'component', 
+                  name: componentName,
+                  path: currentFilePath,
+                  index: componentCount
+                });
+              } else if (currentFilePath.includes('App.jsx')) {
+                await sendProgress({ 
+                  type: 'app', 
+                  message: 'Generated main App.jsx',
+                  path: currentFilePath
                 });
               }
-              lastIndex = packageMatch.index + packageMatch[0].length;
+              
+              currentFile = '';
+              currentFilePath = '';
             }
           }
-          
-          // Keep unmatched portion in buffer for next iteration
-          tagBuffer = searchText.substring(Math.max(0, lastIndex - 50)); // Keep last 50 chars
-          
-          // Check for file boundaries
-          if (text.includes('<file path="')) {
-            const pathMatch = text.match(/<file path="([^"]+)"/);
-            if (pathMatch) {
-              currentFilePath = pathMatch[1];
-              isInFile = true;
-              currentFile = text;
-            }
+
+          // Check finish reason to decide on continuation
+          // result is guaranteed to be defined here because of the throw in the retry loop
+          const finishReason = await result!.finishReason;
+          console.log(`[generate-ai-code-stream] Loop ${loopCount} finished with reason: ${finishReason}`);
+
+          if (finishReason === 'length' && loopCount < maxLoops) {
+              continueGeneration = true;
+              console.log(`[generate-ai-code-stream] Output truncated (loop ${loopCount}), continuing generation...`);
+              await sendProgress({ type: 'status', message: 'Output truncated, continuing generation...' });
+          } else {
+              continueGeneration = false;
           }
-          
-          // Check for file end
-          if (isInFile && currentFile.includes('</file>')) {
-            isInFile = false;
-            
-            // Send component progress update
-            if (currentFilePath.includes('components/')) {
-              componentCount++;
-              const componentName = currentFilePath.split('/').pop()?.replace('.jsx', '') || 'Component';
-              await sendProgress({ 
-                type: 'component', 
-                name: componentName,
-                path: currentFilePath,
-                index: componentCount
-              });
-            } else if (currentFilePath.includes('App.jsx')) {
-              await sendProgress({ 
-                type: 'app', 
-                message: 'Generated main App.jsx',
-                path: currentFilePath
-              });
-            }
-            
-            currentFile = '';
-            currentFilePath = '';
-          }
-        }
+
+        } while (continueGeneration);
+
         
         console.log('\n\n[generate-ai-code-stream] Streaming complete.');
         
@@ -1625,11 +1672,99 @@ It's better to have 3 complete files than 10 incomplete files.`
         // Extract explanation
         const explanationMatch = generatedCode.match(/<explanation>([\s\S]*?)<\/explanation>/);
         const explanation = explanationMatch ? explanationMatch[1].trim() : 'Code generated successfully!';
-        
+
+        // ✅ SYNTAX VALIDATION - Catch common AI code generation errors
+        const syntaxErrors: Array<{ file: string; line: number; error: string; suggestion: string }> = [];
+
+        for (const file of files) {
+          if (!file.path.match(/\.(jsx?|tsx?)$/)) continue; // Only check JS/TS files
+
+          const lines = file.content.split('\n');
+          lines.forEach((line, index) => {
+            const lineNum = index + 1;
+            const trimmed = line.trim();
+
+            // Check for typos in export statement
+            if (trimmed.match(/export\s+(defaum|defaut|defualt|defalut)/)) {
+              syntaxErrors.push({
+                file: file.path,
+                line: lineNum,
+                error: `Invalid export keyword: "${trimmed.match(/export\s+(defaum|defaut|defualt|defalut)/)?.[1]}"`,
+                suggestion: 'Did you mean "export default"?'
+              });
+            }
+
+            // Check for invalid export patterns
+            if (trimmed.match(/^export\s+(defaum|defaut|defualt|defalut)\s+['"`]/)) {
+              syntaxErrors.push({
+                file: file.path,
+                line: lineNum,
+                error: `Malformed export statement: ${trimmed}`,
+                suggestion: 'Should be: export default ComponentName; or export default function() {...}'
+              });
+            }
+
+            // Check for import typos
+            if (trimmed.match(/^(improt|imoprt|ipmort)\s+/)) {
+              syntaxErrors.push({
+                file: file.path,
+                line: lineNum,
+                error: `Invalid import keyword: "${trimmed.match(/^(improt|imoprt|ipmort)/)?.[1]}"`,
+                suggestion: 'Did you mean "import"?'
+              });
+            }
+
+            // Check for "form" instead of "from" in imports
+            if (trimmed.match(/import\s+.*\s+form\s+['"`]/)) {
+              syntaxErrors.push({
+                file: file.path,
+                line: lineNum,
+                error: 'Invalid import syntax: "form" should be "from"',
+                suggestion: trimmed.replace(/\s+form\s+/, ' from ')
+              });
+            }
+
+            // Check for function typos
+            if (trimmed.match(/^(fucntion|funciton|functoin)\s+/)) {
+              syntaxErrors.push({
+                file: file.path,
+                line: lineNum,
+                error: `Invalid function keyword: "${trimmed.match(/^(fucntion|funciton|functoin)/)?.[1]}"`,
+                suggestion: 'Did you mean "function"?'
+              });
+            }
+
+            // Check for const/let/var typos
+            if (trimmed.match(/^(cosnt|cnst|lte)\s+/)) {
+              syntaxErrors.push({
+                file: file.path,
+                line: lineNum,
+                error: `Invalid variable declaration: "${trimmed.match(/^(cosnt|cnst|lte)/)?.[1]}"`,
+                suggestion: 'Did you mean "const" or "let"?'
+              });
+            }
+          });
+        }
+
+        // If syntax errors detected, send warning and log details
+        if (syntaxErrors.length > 0) {
+          console.error('[generate-ai-code-stream] ❌ SYNTAX ERRORS DETECTED:', syntaxErrors);
+
+          const errorSummary = syntaxErrors.map(e =>
+            `  - ${e.file}:${e.line} - ${e.error} (Suggestion: ${e.suggestion})`
+          ).join('\n');
+
+          await sendProgress({
+            type: 'error',
+            error: `⚠️ AI generated code with syntax errors:\n${errorSummary}\n\nPlease regenerate or the code will fail to compile.`
+          });
+
+          // Log to console for debugging
+          console.error('[generate-ai-code-stream] Generated code contains syntax errors. Details:\n' + errorSummary);
+        }
+
         // Validate generated code for truncation issues
         const truncationWarnings: string[] = [];
-        
-        // Skip ellipsis checking entirely - too many false positives with spread operators, loading text, etc.
         
         // Check for unclosed file tags
         const fileOpenCount = (generatedCode.match(/<file path="/g) || []).length;
@@ -1642,40 +1777,105 @@ It's better to have 3 complete files than 10 incomplete files.`
         const truncationCheckRegex = /<file path="([^"]+)">([\s\S]*?)(?:<\/file>|$)/g;
         let truncationMatch;
         while ((truncationMatch = truncationCheckRegex.exec(generatedCode)) !== null) {
+          const fullMatch = truncationMatch[0];
           const filePath = truncationMatch[1];
           const content = truncationMatch[2];
+          
+          // CRITICAL CHECK: Does the file block actually end with </file>?
+          // If the regex matched via the '$' (end of string) alternative, it means </file> was missing.
+          const hasClosingTag = fullMatch.trim().endsWith('</file>');
+          
+          if (!hasClosingTag) {
+            truncationWarnings.push(`File ${filePath} is missing closing tag (truncated)`);
+          }
           
           // Only check for really obvious HTML truncation - file ends with opening tag
           if (content.trim().endsWith('<') || content.trim().endsWith('</')) {
             truncationWarnings.push(`File ${filePath} appears to have incomplete HTML tags`);
           }
           
-          // Skip "..." check - too many false positives with loading text, etc.
-          
-          // Only check for SEVERE truncation issues
+          // 🔥 Enhanced truncation detection for JS/TS files
           if (filePath.match(/\.(jsx?|tsx?)$/)) {
-            // Only check for severely unmatched brackets (more than 3 difference)
+            // Check curly braces (functions, objects, blocks)
             const openBraces = (content.match(/{/g) || []).length;
             const closeBraces = (content.match(/}/g) || []).length;
             const braceDiff = Math.abs(openBraces - closeBraces);
-            if (braceDiff > 3) { // Only flag severe mismatches
-              truncationWarnings.push(`File ${filePath} has severely unmatched braces (${openBraces} open, ${closeBraces} closed)`);
+
+            // Check parentheses (function calls, expressions)
+            const openParens = (content.match(/\(/g) || []).length;
+            const closeParens = (content.match(/\)/g) || []).length;
+            const parenDiff = Math.abs(openParens - closeParens);
+
+            // Check square brackets (arrays, property access)
+            const openBrackets = (content.match(/\[/g) || []).length;
+            const closeBrackets = (content.match(/\]/g) || []).length;
+            const bracketDiff = Math.abs(openBrackets - closeBrackets);
+
+            // 🔥 Check JSX tags (only for .jsx/.tsx files)
+            let jsxTagDiff = 0;
+            if (filePath.match(/\.(jsx|tsx)$/)) {
+              // Match self-closing tags like <Component />
+              const selfClosingTags = (content.match(/<[^>]+\/>/g) || []).length;
+              // Match opening tags like <div>
+              const openingTags = (content.match(/<\w+[^/>]*>/g) || []).length;
+              // Match closing tags like </div>
+              const closingTags = (content.match(/<\/\w+>/g) || []).length;
+              jsxTagDiff = Math.abs((openingTags - selfClosingTags) - closingTags);
             }
-            
-            // Check if file is extremely short and looks incomplete
+
+            // 🚫 STRICT: If no closing tag, ANY mismatch is truncation
+            if (!hasClosingTag && (braceDiff > 0 || parenDiff > 0 || jsxTagDiff > 0)) {
+               truncationWarnings.push(`File ${filePath} is truncated (missing closing tag, braces: ${braceDiff}, parens: ${parenDiff}, JSX tags: ${jsxTagDiff})`);
+            }
+            // 🚫 STRICT: Even with closing tag, check for mismatches (lowered threshold from 3 to 2)
+            else if (braceDiff > 2 || parenDiff > 2 || jsxTagDiff > 1) {
+              truncationWarnings.push(`File ${filePath} has unmatched brackets (braces: ${openBraces}/${closeBraces}, parens: ${openParens}/${closeParens}, JSX: ${jsxTagDiff})`);
+            }
+
+            // 🚫 Check if file is extremely short and looks incomplete
             if (content.length < 20 && content.includes('function') && !content.includes('}')) {
-              truncationWarnings.push(`File ${filePath} appears severely truncated`);
+              truncationWarnings.push(`File ${filePath} appears severely truncated (< 20 chars with incomplete function)`);
+            }
+
+            // 🚫 NEW: Check for incomplete return statements in React components
+            if (filePath.match(/\.(jsx|tsx)$/)) {
+              const hasReturnKeyword = content.includes('return');
+              const hasOpenReturn = content.match(/return\s*\(/);
+              const hasJSX = content.includes('<');
+
+              // If there's a return statement with JSX but missing closing parenthesis
+              if (hasReturnKeyword && hasOpenReturn && hasJSX && parenDiff > 0) {
+                truncationWarnings.push(`File ${filePath} has incomplete return statement in React component`);
+              }
+            }
+
+            // 🚫 NEW: Check for dangling code indicators
+            const danglingIndicators = [
+              content.trim().endsWith(','),
+              content.trim().endsWith('{'),
+              content.trim().endsWith('('),
+              content.trim().endsWith('<span'),
+              content.trim().endsWith('<div'),
+              content.trim().match(/\w+\s*=\s*$/)  // variable assignment without value
+            ];
+
+            if (danglingIndicators.some(Boolean)) {
+              truncationWarnings.push(`File ${filePath} ends with incomplete code (dangling syntax)`);
             }
           }
         }
         
         // Handle truncation with automatic retry (if enabled in config)
         if (truncationWarnings.length > 0 && appConfig.codeApplication.enableTruncationRecovery) {
-          console.warn('[generate-ai-code-stream] Truncation detected, attempting to fix:', truncationWarnings);
-          
+          console.warn('[generate-ai-code-stream] 🚨 Truncation detected, attempting to fix:', truncationWarnings);
+          console.warn(`[generate-ai-code-stream] 📊 Total warnings: ${truncationWarnings.length}`);
+          truncationWarnings.forEach((warning, index) => {
+            console.warn(`[generate-ai-code-stream] ⚠️  Warning ${index + 1}: ${warning}`);
+          });
+
           await sendProgress({
             type: 'warning',
-            message: 'Detected incomplete code generation. Attempting to complete...',
+            message: `Detected ${truncationWarnings.length} incomplete code generation issues. Attempting to complete...`,
             warnings: truncationWarnings
           });
           
@@ -1721,14 +1921,16 @@ It's better to have 3 complete files than 10 incomplete files.`
           
           // If we have truncated files, try to regenerate them
           if (truncatedFiles.length > 0) {
-            console.log('[generate-ai-code-stream] Attempting to regenerate truncated files:', truncatedFiles);
-            
+            console.log(`[generate-ai-code-stream] 🔄 Attempting to regenerate ${truncatedFiles.length} truncated files:`, truncatedFiles);
+
             for (const filePath of truncatedFiles) {
+              console.log(`[generate-ai-code-stream] 📝 Processing file: ${filePath}`);
+
               await sendProgress({
                 type: 'info',
                 message: `Completing ${filePath}...`
               });
-              
+
               try {
                 // Create a focused prompt to complete just this file
                 const completionPrompt = `Complete the following file that was truncated. Provide the FULL file content.
@@ -1802,11 +2004,17 @@ Provide the complete file content without any truncation. Include all necessary 
                   filePattern,
                   `<file path="${filePath}">\n${cleanContent}\n</file>`
                 );
-                
-                console.log(`[generate-ai-code-stream] Successfully completed ${filePath}`);
-                
-              } catch (completionError) {
-                console.error(`[generate-ai-code-stream] Failed to complete ${filePath}:`, completionError);
+
+                console.log(`[generate-ai-code-stream] ✅ Successfully completed ${filePath}`);
+                console.log(`[generate-ai-code-stream] 📊 Completed content length: ${cleanContent.length} chars`);
+
+              } catch (completionError: any) {
+                console.error(`[generate-ai-code-stream] ❌ Failed to complete ${filePath}:`, completionError?.message || completionError);
+                console.error(`[generate-ai-code-stream] 🔍 Error details:`, {
+                  name: completionError?.name,
+                  stack: completionError?.stack?.split('\n').slice(0, 3)
+                });
+
                 await sendProgress({
                   type: 'warning',
                   message: `Could not auto-complete ${filePath}. Manual review may be needed.`
@@ -1881,6 +2089,7 @@ Provide the complete file content without any truncation. Include all necessary 
           });
         }
       } finally {
+        clearInterval(heartbeatInterval);
         await writer.close();
       }
     })();
