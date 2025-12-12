@@ -47,6 +47,7 @@ interface ChatMessage {
 function AISandboxPage() {
   const [sandboxData, setSandboxData] = useState<SandboxData | null>(null);
   const [loading, setLoading] = useState(false);
+  const [isSmartRefreshing, setIsSmartRefreshing] = useState(false);
   const [status, setStatus] = useState({ text: 'Not connected', active: false });
   const [responseArea, setResponseArea] = useState<string[]>([]);
   const [structureContent, setStructureContent] = useState('No sandbox created yet');
@@ -1170,6 +1171,66 @@ Tip: I automatically detect and install npm packages from your code imports (lik
       console.error('[fetchSandboxFiles] Error fetching files:', error);
     }
   };
+
+  /**
+   * 智能刷新预览：
+   * - 先让服务端检查当前 sandbox 代码是否完整
+   * - 若发现缺失依赖/截断问题则自动补全并写回 sandbox
+   * - 最后刷新 iframe 预览
+   */
+  const smartRefreshPreview = async () => {
+    if (!sandboxData?.url || isSmartRefreshing) return;
+
+    setIsSmartRefreshing(true);
+    try {
+      addChatMessage('正在检查代码完整性并刷新预览...', 'system');
+
+      const response = await fetch('/api/smart-refresh-preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: aiModel })
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        if (data.fixed) {
+          const fixedFiles = [
+            ...(data.filesCreated || []),
+            ...(data.filesUpdated || [])
+          ];
+
+          if (fixedFiles.length > 0) {
+            addChatMessage(
+              `已自动补全/优化 ${fixedFiles.length} 个文件，正在刷新预览...`,
+              'system',
+              { appliedFiles: fixedFiles }
+            );
+          } else {
+            addChatMessage('检测到问题但未生成新文件，正在刷新预览...', 'system');
+          }
+
+          // 更新文件列表，让侧栏显示最新结构
+          await fetchSandboxFiles();
+        } else {
+          addChatMessage('代码已完整，直接刷新预览。', 'system');
+        }
+      } else {
+        addChatMessage(`智能刷新失败：${data.error || 'unknown error'}`, 'error');
+      }
+    } catch (error: any) {
+      addChatMessage(`智能刷新失败：${error.message}`, 'error');
+    } finally {
+      setIsSmartRefreshing(false);
+
+      if (iframeRef.current && sandboxData?.url) {
+        const refreshDelay = appConfig.codeApplication.defaultRefreshDelay;
+        setTimeout(() => {
+          const newSrc = `${sandboxData.url}?t=${Date.now()}&manual=true`;
+          iframeRef.current!.src = newSrc;
+        }, refreshDelay);
+      }
+    }
+  };
   
 //   const restartViteServer = async () => {
 //     try {
@@ -1548,8 +1609,8 @@ Tip: I automatically detect and install npm packages from your code imports (lik
                       </div>
                     ))}
                     
-                    {/* Show remaining raw stream if there's content after the last file */}
-                    {!generationProgress.currentFile && generationProgress.streamedCode.length > 0 && (
+                    {/* Show remaining raw stream if there's content after the last file - only during generation */}
+                    {generationProgress.isGenerating && !generationProgress.currentFile && generationProgress.streamedCode.length > 0 && (
                       <div className="bg-black border border-gray-200 rounded-lg overflow-hidden">
                         <div className="px-4 py-2 bg-[#36322F] text-white flex items-center justify-between">
                           <div className="flex items-center gap-2">
@@ -1757,15 +1818,12 @@ Tip: I automatically detect and install npm packages from your code imports (lik
             
             {/* Refresh button */}
             <button
-              onClick={() => {
-                if (iframeRef.current && sandboxData?.url) {
-                  console.log('[Manual Refresh] Forcing iframe reload...');
-                  const newSrc = `${sandboxData.url}?t=${Date.now()}&manual=true`;
-                  iframeRef.current.src = newSrc;
-                }
-              }}
-              className="absolute bottom-4 right-4 bg-white/90 hover:bg-white text-gray-700 p-2 rounded-lg shadow-lg transition-all duration-200 hover:scale-105"
-              title="Refresh sandbox"
+              onClick={smartRefreshPreview}
+              disabled={isSmartRefreshing}
+              className={`absolute bottom-4 right-4 bg-white/90 hover:bg-white text-gray-700 p-2 rounded-lg shadow-lg transition-all duration-200 hover:scale-105 ${
+                isSmartRefreshing ? 'opacity-60 cursor-not-allowed hover:scale-100' : ''
+              }`}
+              title="Smart refresh sandbox"
             >
               <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -2109,15 +2167,30 @@ Tip: I automatically detect and install npm packages from your code imports (lik
                     });
                   }
                   
-                  setGenerationProgress(prev => ({
-                    ...prev,
-                    status: `Generated ${parsedFiles.length > 0 ? parsedFiles.length : prev.files.length} file${(parsedFiles.length > 0 ? parsedFiles.length : prev.files.length) !== 1 ? 's' : ''}!`,
-                    isGenerating: false,
-                    isStreaming: false,
-                    isEdit: prev.isEdit,
-                    // Keep the files that were already parsed during streaming
-                    files: prev.files.length > 0 ? prev.files : parsedFiles
-                  }));
+                  setGenerationProgress(prev => {
+                    // 合并流式解析的文件与最终修复后的文件，避免漏掉生成阶段自动补全的文件
+                    const mergedFiles = prev.files.length > 0 ? [...prev.files] : [];
+                    const existingPaths = new Set(mergedFiles.map(f => f.path));
+
+                    for (const pf of parsedFiles) {
+                      if (existingPaths.has(pf.path)) {
+                        const idx = mergedFiles.findIndex(f => f.path === pf.path);
+                        if (idx >= 0) mergedFiles[idx] = { ...mergedFiles[idx], ...pf };
+                      } else {
+                        mergedFiles.push(pf);
+                        existingPaths.add(pf.path);
+                      }
+                    }
+
+                    return {
+                      ...prev,
+                      status: `Generated ${parsedFiles.length > 0 ? parsedFiles.length : prev.files.length} file${(parsedFiles.length > 0 ? parsedFiles.length : prev.files.length) !== 1 ? 's' : ''}!`,
+                      isGenerating: false,
+                      isStreaming: false,
+                      isEdit: prev.isEdit,
+                      files: mergedFiles.length > 0 ? mergedFiles : parsedFiles
+                    };
+                  });
                 } else if (data.type === 'error') {
                   throw new Error(data.error);
                 }

@@ -11,11 +11,8 @@ const nextConfig: NextConfig = {
   // Docker部署：使用standalone模式生成优化的生产构建
   output: 'standalone',
 
-  // 实验性功能
-  experimental: {
-    // 优化服务器组件
-    serverComponentsExternalPackages: ['playwright', 'crawlee'],
-  },
+  // 服务器外部包配置（Next.js 15+已从experimental移至顶层）
+  serverExternalPackages: ['playwright', 'crawlee'],
 };
 
 export default nextConfig;

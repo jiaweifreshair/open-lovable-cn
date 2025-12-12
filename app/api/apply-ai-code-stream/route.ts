@@ -127,10 +127,21 @@ function parseAIResponse(response: string): ParsedResponse {
   }
 
   // Also parse markdown code blocks with file paths
+  // 关键修复：使用去重机制，避免同一文件被添加多次导致代码重复
   const markdownFileRegex = /```(?:file )?path="([^"]+)"\n([\s\S]*?)```/g;
   while ((match = markdownFileRegex.exec(response)) !== null) {
     const filePath = match[1];
     const content = match[2].trim();
+
+    // 去重检查：如果该路径已存在于fileMap或sections.files中，跳过
+    const existingInMap = fileMap.has(filePath);
+    const existingInFiles = sections.files.some(f => f.path === filePath);
+
+    if (existingInMap || existingInFiles) {
+      console.log(`[apply-ai-code-stream] Skipping duplicate markdown file: ${filePath}`);
+      continue;
+    }
+
     sections.files.push({
       path: filePath,
       content: content
@@ -147,6 +158,7 @@ function parseAIResponse(response: string): ParsedResponse {
   }
 
   // Parse plain text format like "Generated Files: Header.jsx, index.css"
+  // 关键修复：添加去重检查
   const generatedFilesMatch = response.match(/Generated Files?:\s*([^\n]+)/i);
   if (generatedFilesMatch) {
     // Split by comma first, then trim whitespace, to preserve filenames with dots
@@ -158,6 +170,14 @@ function parseAIResponse(response: string): ParsedResponse {
 
     // Try to extract the actual file content if it follows
     for (const fileName of filesList) {
+      const filePath = fileName.includes('/') ? fileName : `src/components/${fileName}`;
+
+      // 去重检查：跳过已存在的文件
+      if (fileMap.has(filePath) || sections.files.some(f => f.path === filePath)) {
+        console.log(`[apply-ai-code-stream] Skipping duplicate plain text file: ${filePath}`);
+        continue;
+      }
+
       // Look for the file content after the file name
       const fileContentRegex = new RegExp(`${fileName}[\\s\\S]*?(?:import[\\s\\S]+?)(?=Generated Files:|Applying code|$)`, 'i');
       const fileContentMatch = response.match(fileContentRegex);
@@ -165,7 +185,6 @@ function parseAIResponse(response: string): ParsedResponse {
         // Extract just the code part (starting from import statements)
         const codeMatch = fileContentMatch[0].match(/^(import[\s\S]+)$/m);
         if (codeMatch) {
-          const filePath = fileName.includes('/') ? fileName : `src/components/${fileName}`;
           sections.files.push({
             path: filePath,
             content: codeMatch[1].trim()
@@ -186,6 +205,7 @@ function parseAIResponse(response: string): ParsedResponse {
   }
 
   // Also try to parse if the response contains raw JSX/JS code blocks
+  // 关键修复：增强去重检查，同时检查fileMap和sections.files
   const codeBlockRegex = /```(?:jsx?|tsx?|javascript|typescript)?\n([\s\S]*?)```/g;
   while ((match = codeBlockRegex.exec(response)) !== null) {
     const content = match[1].trim();
@@ -195,19 +215,22 @@ function parseAIResponse(response: string): ParsedResponse {
       const fileName = fileNameMatch[1].trim();
       const filePath = fileName.includes('/') ? fileName : `src/components/${fileName}`;
 
-      // Don't add duplicate files
-      if (!sections.files.some(f => f.path === filePath)) {
-        sections.files.push({
-          path: filePath,
-          content: content
-        });
+      // 增强去重：同时检查fileMap和sections.files
+      if (fileMap.has(filePath) || sections.files.some(f => f.path === filePath)) {
+        console.log(`[apply-ai-code-stream] Skipping duplicate code block file: ${filePath}`);
+        continue;
+      }
 
-        // Extract packages
-        const filePackages = extractPackagesFromCode(content);
-        for (const pkg of filePackages) {
-          if (!sections.packages.includes(pkg)) {
-            sections.packages.push(pkg);
-          }
+      sections.files.push({
+        path: filePath,
+        content: content
+      });
+
+      // Extract packages
+      const filePackages = extractPackagesFromCode(content);
+      for (const pkg of filePackages) {
+        if (!sections.packages.includes(pkg)) {
+          sections.packages.push(pkg);
         }
       }
     }
@@ -277,6 +300,7 @@ export async function POST(request: NextRequest) {
     console.log('[apply-ai-code-stream] Response preview:', response.substring(0, 500));
     console.log('[apply-ai-code-stream] isEdit:', isEdit);
     console.log('[apply-ai-code-stream] packages:', packages);
+    console.log('[apply-ai-code-stream] sandboxId:', sandboxId);
 
     // Parse the AI response
     const parsed = parseAIResponse(response);
@@ -303,11 +327,14 @@ export async function POST(request: NextRequest) {
     }
 
     // Try to get provider from sandbox manager first
+    console.log(`[apply-ai-code-stream] Looking up provider for sandboxId: ${sandboxId}`);
     let provider = sandboxId ? sandboxManager.getProvider(sandboxId) : sandboxManager.getActiveProvider();
+    console.log(`[apply-ai-code-stream] Provider from sandboxManager: ${provider ? 'found' : 'not found'}`);
 
     // Fall back to global state if not found in manager
     if (!provider) {
       provider = global.activeSandboxProvider;
+      console.log(`[apply-ai-code-stream] Provider from global state: ${provider ? 'found' : 'not found'}`);
     }
 
     // If we have a sandboxId but no provider, try to get or create one
@@ -451,55 +478,98 @@ export async function POST(request: NextRequest) {
             packages: uniquePackages
           });
 
-          // Use streaming package installation
+          // Use streaming package installation with heartbeat to keep connection alive
           try {
-            // Construct the API URL properly for both dev and production
-            const protocol = process.env.NODE_ENV === 'production' ? 'https' : 'http';
-            const host = req.headers.get('host') || 'localhost:3000';
-            const apiUrl = `${protocol}://${host}/api/install-packages`;
+            // 关键修复：使用本地服务器地址而非从请求头获取
+            // 当请求从 Ingenio 后端代理过来时，req.headers.get('host') 会返回错误的地址
+            const port = process.env.PORT || '3001';
+            const apiUrl = `http://localhost:${port}/api/install-packages`;
+            console.log(`[apply-ai-code-stream] Calling install-packages API: ${apiUrl}`);
 
-            const installResponse = await fetch(apiUrl, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                packages: uniquePackages,
-                sandboxId: sandboxId || providerInstance.getSandboxInfo()?.sandboxId
-              })
-            });
+            // 关键修复：启动心跳机制，在 install-packages 期间保持 SSE 连接活跃
+            // npm install 可能需要 30-60 秒，期间如果没有数据发送，客户端可能会断开连接
+            let heartbeatCount = 0;
+            const heartbeatInterval = setInterval(async () => {
+              heartbeatCount++;
+              try {
+                await sendProgress({
+                  type: 'heartbeat',
+                  message: `Installing packages... (${heartbeatCount * 5}s)`,
+                  elapsed: heartbeatCount * 5
+                });
+                console.log(`[apply-ai-code-stream] Heartbeat sent: ${heartbeatCount * 5}s elapsed`);
+              } catch (heartbeatError) {
+                console.log('[apply-ai-code-stream] Heartbeat failed, connection may be closed');
+              }
+            }, 5000); // 每 5 秒发送一次心跳
 
-            if (installResponse.ok && installResponse.body) {
-              const reader = installResponse.body.getReader();
-              const decoder = new TextDecoder();
+            try {
+              const installResponse = await fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  packages: uniquePackages,
+                  sandboxId: sandboxId || providerInstance.getSandboxInfo()?.sandboxId
+                })
+              });
 
-              while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
+              // 关键修复：不要在这里停止心跳！
+              // fetch() 在收到响应头时就返回，但 SSE 流的实际数据还在传输中
+              // 心跳必须在整个 SSE 流读取完成后才能停止
+              console.log(`[apply-ai-code-stream] Received install response headers, starting to read SSE stream...`);
 
-                const chunk = decoder.decode(value);
-                if (!chunk) continue;
-                const lines = chunk.split('\n');
+              if (installResponse.ok && installResponse.body) {
+                const reader = installResponse.body.getReader();
+                const decoder = new TextDecoder();
 
-                for (const line of lines) {
-                  if (line.startsWith('data: ')) {
-                    try {
-                      const data = JSON.parse(line.slice(6));
+                while (true) {
+                  const { done, value } = await reader.read();
+                  if (done) {
+                    // SSE 流读取完成，现在可以停止心跳了
+                    clearInterval(heartbeatInterval);
+                    console.log(`[apply-ai-code-stream] SSE stream complete, stopped heartbeat after ${heartbeatCount * 5}s`);
+                    break;
+                  }
 
-                      // Forward package installation progress
-                      await sendProgress({
-                        type: 'package-progress',
-                        ...data
-                      });
+                  const chunk = decoder.decode(value);
+                  if (!chunk) continue;
+                  const lines = chunk.split('\n');
 
-                      // Track results
-                      if (data.type === 'success' && data.installedPackages) {
-                        results.packagesInstalled = data.installedPackages;
+                  for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                      try {
+                        const data = JSON.parse(line.slice(6));
+
+                        // Forward package installation progress
+                        // 重要：不要直接spread data，因为data可能包含type: 'complete'
+                        // 这会覆盖我们设置的type: 'package-progress'，导致Ingenio后端误认为
+                        // apply-ai-code-stream已完成，从而关闭连接
+                        await sendProgress({
+                          type: 'package-progress',
+                          originalType: data.type,  // 保留原始类型用于调试
+                          message: data.message,
+                          installedPackages: data.installedPackages,
+                          alreadyInstalled: data.alreadyInstalled
+                        });
+
+                        // Track results
+                        if (data.type === 'success' && data.installedPackages) {
+                          results.packagesInstalled = data.installedPackages;
+                        }
+                      } catch (parseError) {
+                        console.debug('Error parsing terminal output:', parseError);
                       }
-                    } catch (parseError) {
-                      console.debug('Error parsing terminal output:', parseError);
                     }
                   }
                 }
+              } else {
+                // 如果响应失败，也要停止心跳
+                clearInterval(heartbeatInterval);
+                console.log(`[apply-ai-code-stream] Install response not ok, stopped heartbeat`);
               }
+            } finally {
+              // 确保心跳被清除，即使出现错误
+              clearInterval(heartbeatInterval);
             }
           } catch (error) {
             console.error('[apply-ai-code-stream] Error installing packages:', error);
@@ -519,6 +589,7 @@ export async function POST(request: NextRequest) {
 
         // Step 2: Create/update files
         const filesArray = Array.isArray(parsed.files) ? parsed.files : [];
+        console.log(`[apply-ai-code-stream] Step 2: Starting file creation, ${filesArray.length} files to process`);
         await sendProgress({
           type: 'step',
           step: 2,
@@ -635,7 +706,9 @@ export async function POST(request: NextRequest) {
             }
 
             // Write the file using provider
+            console.log(`[apply-ai-code-stream] Writing file ${index + 1}/${filteredFiles.length}: ${normalizedPath} (${fileContent.length} bytes)`);
             await providerInstance.writeFile(normalizedPath, fileContent);
+            console.log(`[apply-ai-code-stream] File written successfully: ${normalizedPath}`);
 
             // Update file cache
             if (global.sandboxState?.fileCache) {
@@ -666,6 +739,105 @@ export async function POST(request: NextRequest) {
               fileName: file.path,
               error: (error as Error).message
             });
+          }
+        }
+
+        // 关键修复：如果写入了 App.tsx，需要更新 main.jsx 的导入
+        // E2B sandbox模板的 main.jsx 默认导入 App.jsx，但AI生成的是 App.tsx
+        const hasAppTsx = filteredFiles.some(f => f.path === 'src/App.tsx' || f.path === 'App.tsx');
+        if (hasAppTsx) {
+          try {
+            console.log('[apply-ai-code-stream] Detected App.tsx, updating main.jsx import...');
+            await sendProgress({
+              type: 'info',
+              message: 'Updating main.jsx to import App.tsx...'
+            });
+
+            // 读取现有的 main.jsx
+            const mainJsxContent = await providerInstance.readFile('src/main.jsx');
+            if (mainJsxContent) {
+              // 替换 App.jsx 导入为 App.tsx
+              const updatedMainJsx = mainJsxContent.replace(
+                /import App from ['"]\.\/App\.jsx['"]/,
+                "import App from './App.tsx'"
+              );
+
+              if (updatedMainJsx !== mainJsxContent) {
+                await providerInstance.writeFile('src/main.jsx', updatedMainJsx);
+                console.log('[apply-ai-code-stream] Successfully updated main.jsx to import App.tsx');
+                await sendProgress({
+                  type: 'file-complete',
+                  fileName: 'src/main.jsx',
+                  action: 'updated (import fix)'
+                });
+              }
+            }
+          } catch (mainJsxError) {
+            console.warn('[apply-ai-code-stream] Could not update main.jsx:', mainJsxError);
+          }
+        } else {
+          // Fallback: 如果没有App.tsx但有组件，自动生成汇总App.tsx
+          // 这种情况通常发生在AI响应被截断时
+          const componentFiles = filteredFiles.filter(f =>
+            f.path.includes('/components/') &&
+            (f.path.endsWith('.tsx') || f.path.endsWith('.jsx'))
+          );
+
+          if (componentFiles.length > 0) {
+            console.log('[apply-ai-code-stream] ⚠️ No App.tsx found but has components, generating fallback App.tsx...');
+            await sendProgress({
+              type: 'warning',
+              message: 'App.tsx missing (truncated response?), generating fallback...'
+            });
+
+            try {
+              // 提取组件名称
+              const componentImports = componentFiles.map(f => {
+                const fileName = f.path.split('/').pop()?.replace(/\.(tsx|jsx)$/, '') || '';
+                const componentName = fileName.charAt(0).toUpperCase() + fileName.slice(1);
+                return { name: componentName, path: f.path.replace('src/', './').replace(/\.(tsx|jsx)$/, '') };
+              });
+
+              // 生成fallback App.tsx
+              const fallbackAppContent = `// Auto-generated fallback App.tsx (original was truncated)
+import React from 'react';
+${componentImports.map(c => `import ${c.name} from '${c.path}';`).join('\n')}
+
+export default function App() {
+  return (
+    <div className="min-h-screen bg-gray-50">
+      ${componentImports.map(c => `<${c.name} />`).join('\n      ')}
+    </div>
+  );
+}
+`;
+
+              await providerInstance.writeFile('src/App.tsx', fallbackAppContent);
+              console.log('[apply-ai-code-stream] ✅ Fallback App.tsx created with', componentImports.length, 'components');
+              results.filesCreated.push('src/App.tsx');
+
+              await sendProgress({
+                type: 'file-complete',
+                fileName: 'src/App.tsx',
+                action: 'created (fallback)'
+              });
+
+              // 更新main.jsx以导入App.tsx
+              const mainJsxContent = await providerInstance.readFile('src/main.jsx');
+              if (mainJsxContent) {
+                const updatedMainJsx = mainJsxContent.replace(
+                  /import App from ['"]\.\/App\.jsx['"]/,
+                  "import App from './App.tsx'"
+                );
+                if (updatedMainJsx !== mainJsxContent) {
+                  await providerInstance.writeFile('src/main.jsx', updatedMainJsx);
+                  console.log('[apply-ai-code-stream] Updated main.jsx to import fallback App.tsx');
+                }
+              }
+            } catch (fallbackError) {
+              console.error('[apply-ai-code-stream] Failed to create fallback App.tsx:', fallbackError);
+              results.errors.push(`Failed to create fallback App.tsx: ${(fallbackError as Error).message}`);
+            }
           }
         }
 
@@ -776,7 +948,13 @@ export async function POST(request: NextRequest) {
           error: (error as Error).message
         });
       } finally {
-        await writer.close();
+        // Close the writer safely - check if it's not already closed
+        try {
+          await writer.close();
+        } catch (closeError) {
+          // Writer might already be closed, log but don't throw
+          console.debug('[apply-ai-code-stream] Writer close error (expected if stream ended early):', closeError);
+        }
       }
     })(provider, request);
 

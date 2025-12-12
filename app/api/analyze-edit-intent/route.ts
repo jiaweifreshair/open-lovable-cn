@@ -2,14 +2,19 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createGroq } from '@ai-sdk/groq';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAI } from '@ai-sdk/openai';
+import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { generateObject } from 'ai';
 import { z } from 'zod';
 // import type { FileManifest } from '@/types/file-manifest'; // Type is used implicitly through manifest parameter
+import { geminiFetch } from '../../../lib/gemini-fetch';
 
 // Check if we're using Vercel AI Gateway
 const isUsingAIGateway = !!process.env.AI_GATEWAY_API_KEY;
 const aiGatewayBaseURL = 'https://ai-gateway.vercel.sh/v1';
+
+// Check if Gemini GCA is configured
+const isUsingGeminiGCA = !!process.env.CODE_ASSIST_ENDPOINT && !!process.env.GOOGLE_CLOUD_ACCESS_TOKEN;
 
 const groq = createGroq({
   apiKey: process.env.AI_GATEWAY_API_KEY ?? process.env.GROQ_API_KEY,
@@ -29,6 +34,15 @@ const openai = createOpenAI({
 const googleGenerativeAI = createGoogleGenerativeAI({
   apiKey: process.env.AI_GATEWAY_API_KEY ?? process.env.GEMINI_API_KEY,
   baseURL: isUsingAIGateway ? aiGatewayBaseURL : undefined,
+});
+
+// Gemini GCA Provider (Google Cloud AI - OpenAI Compatible)
+// 正确的 endpoint: https://cs.imds.ai/api/v1
+const geminiGCAProvider = createOpenAICompatible({
+  name: 'gemini-gca',
+  apiKey: process.env.GOOGLE_CLOUD_ACCESS_TOKEN || '',
+  baseURL: 'https://cs.imds.ai/api/v1',
+  fetch: geminiFetch,
 });
 
 // Schema for the AI's search plan - not file selection!
@@ -107,6 +121,9 @@ export async function POST(request: NextRequest) {
     let aiModel;
     if (model.startsWith('anthropic/')) {
       aiModel = anthropic(model.replace('anthropic/', ''));
+    } else if (model.startsWith('gemini-') && isUsingGeminiGCA) {
+      // Gemini GCA models (e.g., gemini-3-pro-preview)
+      aiModel = geminiGCAProvider(model);
     } else if (model.startsWith('openai/')) {
       if (model.includes('gpt-oss')) {
         aiModel = groq(model);

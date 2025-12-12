@@ -50,24 +50,32 @@ export const appConfig = {
   
   // AI Model Configuration
   ai: {
-    // Default AI model
-    defaultModel: 'moonshotai/kimi-k2-instruct-0905',
+    // Default AI model - 优先使用国外模型，Claude Sonnet 4 作为默认
+    defaultModel: 'anthropic/claude-sonnet-4-20250514',
 
-    // Available models (保留所有现有国际模型 + 新增国内模型选项)
+    // Available models - 国外模型优先，国内模型作为后备
     availableModels: [
       // ========================================
-      // International Models (现有，保留不变)
+      // 🌐 International Models (优先推荐)
       // ========================================
-      'openai/gpt-5',
-      'moonshotai/kimi-k2-instruct-0905',
-      'anthropic/claude-sonnet-4-20250514',
-      'google/gemini-2.0-flash-exp',
+      'anthropic/claude-sonnet-4-20250514',  // 🥇 首选 - Claude Sonnet 4
+      'google/gemini-2.0-flash-exp',         // 🥈 次选 - Gemini 2.0 Flash
+      'openai/gpt-5',                        // 🥉 GPT-5
+      'moonshotai/kimi-k2-instruct-0905',    // Kimi K2 (Groq托管)
 
       // ========================================
-      // Chinese Models (新增，七牛云实际支持)
+      // 🚀 Gemini GCA Models (cs.imds.ai 代理)
       // ========================================
-      // Note: To use these, configure OPENAI_BASE_URL in .env.local
-      // Example: OPENAI_BASE_URL=https://api.qnaigc.com/v1
+      // 需配置: CODE_ASSIST_ENDPOINT + GOOGLE_CLOUD_ACCESS_TOKEN
+      'gemini-3-pro-preview',                // Gemini 3 Pro Preview (最新)
+      'gemini-2.5-pro-preview-05-06',        // Gemini 2.5 Pro Preview
+      'gemini-2.0-flash-exp',                // Gemini 2.0 Flash Exp
+
+      // ========================================
+      // 🇨🇳 Chinese Models (后备方案 - 七牛云托管)
+      // ========================================
+      // Note: 当国外模型不可用时自动切换
+      // 配置: OPENAI_BASE_URL=https://api.qnaigc.com/v1
 
       // Qiniu Cloud - Qwen Series (通义千问系列)
       'qwen3-max',                   // 🇨🇳 通义千问 3 Max - 最强推理
@@ -88,13 +96,18 @@ export const appConfig = {
       'kimi-k2',                     // 🇨🇳 Kimi K2 - 长文本处理
     ],
 
-    // Model display names (显示名称，保留现有 + 新增国内模型)
+    // Model display names - 显示名称（带优先级标记）
     modelDisplayNames: {
-      // International Models (保留不变)
-      'openai/gpt-5': 'GPT-5',
+      // 🌐 International Models (优先推荐)
+      'anthropic/claude-sonnet-4-20250514': '🥇 Claude Sonnet 4',
+      'google/gemini-2.0-flash-exp': '🥈 Gemini 2.0 Flash',
+      'openai/gpt-5': '🥉 GPT-5',
       'moonshotai/kimi-k2-instruct-0905': 'Kimi K2 (Groq)',
-      'anthropic/claude-sonnet-4-20250514': 'Sonnet 4',
-      'google/gemini-2.0-flash-exp': 'Gemini 2.0 Flash (Experimental)',
+
+      // 🚀 Gemini GCA Models (cs.imds.ai)
+      'gemini-3-pro-preview': '🚀 Gemini 3 Pro Preview',
+      'gemini-2.5-pro-preview-05-06': '🚀 Gemini 2.5 Pro',
+      'gemini-2.0-flash-exp': '🚀 Gemini 2.0 Flash (GCA)',
 
       // Chinese Models - Qiniu Cloud (七牛云实际支持的模型)
       'qwen3-max': '🇨🇳 通义千问 3 Max',
@@ -121,10 +134,10 @@ export const appConfig = {
     defaultTemperature: 0.7,
     
     // Max tokens for code generation
-    maxTokens: 8000,
+    maxTokens: 30000,
     
     // Max tokens for truncation recovery
-    truncationRecoveryMaxTokens: 4000,
+    truncationRecoveryMaxTokens: 8000,
   },
   
   // Code Application Configuration
@@ -136,10 +149,10 @@ export const appConfig = {
     packageInstallRefreshDelay: 5000,
     
     // Enable/disable automatic truncation recovery
-    enableTruncationRecovery: false, // Disabled - too many false positives
+    enableTruncationRecovery: true, // Enabled for reliable generation
     
     // Maximum number of truncation recovery attempts per file
-    maxTruncationRecoveryAttempts: 1,
+    maxTruncationRecoveryAttempts: 3,
   },
   
   // UI Configuration

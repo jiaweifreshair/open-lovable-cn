@@ -25,18 +25,31 @@ export async function POST(req: NextRequest) {
     console.log('[scrape-screenshot] Using Firecrawl API key:', apiKey ? 'Present' : 'Missing');
 
     // Use the new v4 scrape method (not scrapeUrl)
-    const scrapeResult = await app.scrape(url, {
-      formats: ['screenshot'], // Request screenshot format
-      waitFor: 3000, // Wait for page to fully load
-      timeout: 30000,
-      onlyMainContent: false, // Get full page for screenshot
-      actions: [
-        {
-          type: 'wait',
-          milliseconds: 2000 // Additional wait for dynamic content
-        }
-      ]
-    });
+    let scrapeResult;
+    try {
+      scrapeResult = await app.scrape(url, {
+        formats: ['screenshot'], // Request screenshot format
+        waitFor: 5000, // Wait slightly longer for page to load
+        timeout: 60000, // Increase timeout to 60s
+        onlyMainContent: false, // Get full page for screenshot
+        actions: [
+          {
+            type: 'wait',
+            milliseconds: 2000 // Additional wait for dynamic content
+          }
+        ]
+      });
+    } catch (scrapeError: any) {
+      console.error('[scrape-screenshot] Firecrawl scrape failed:', scrapeError.message);
+      
+      // Return success with null screenshot to prevent breaking the UI
+      return NextResponse.json({
+        success: true,
+        screenshot: null,
+        warning: 'Screenshot capture timed out or failed, but you can still proceed with code generation.',
+        error: scrapeError.message
+      });
+    }
 
     console.log('[scrape-screenshot] Full scrape result:', JSON.stringify(scrapeResult, null, 2));
     console.log('[scrape-screenshot] Scrape result type:', typeof scrapeResult);

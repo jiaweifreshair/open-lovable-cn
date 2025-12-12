@@ -1,0 +1,610 @@
+0 verbose cli /usr/local/bin/node /usr/local/lib/node_modules/npm/bin/npm-cli.js
+1 info using npm@10.9.2
+2 info using node@v22.17.0
+3 silly config load:file:/usr/local/lib/node_modules/npm/npmrc
+4 silly config load:file:/Users/apus/.npmrc
+5 silly config load:file:/usr/local/etc/npmrc
+6 verbose title npm exec @executeautomation/playwright-mcp-server
+7 verbose argv "exec" "--yes" "--" "@executeautomation/playwright-mcp-server"
+8 verbose logfile logs-max:10 dir:/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_logs/2025-12-10T09_03_15_307Z-
+9 verbose logfile /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_logs/2025-12-10T09_03_15_307Z-debug-0.log
+10 silly logfile start cleaning logs, removing 1 files
+11 silly logfile done cleaning log files
+12 silly packumentCache heap:4345298944 maxSize:1086324736 maxEntrySize:543162368
+13 verbose shrinkwrap failed to load node_modules/.package-lock.json out of date, updated: node_modules
+14 http fetch GET 200 https://registry.npmmirror.com/@executeautomation%2fplaywright-mcp-server 140ms (cache updated)
+15 silly packumentCache heap:4345298944 maxSize:1086324736 maxEntrySize:543162368
+16 silly packumentCache heap:4345298944 maxSize:1086324736 maxEntrySize:543162368
+17 silly idealTree buildDeps
+18 silly fetch manifest @executeautomation/playwright-mcp-server@1.0.9
+19 silly packumentCache full:https://registry.npmmirror.com/@executeautomation%2fplaywright-mcp-server cache-miss
+20 http fetch GET 200 https://registry.npmmirror.com/@executeautomation%2fplaywright-mcp-server 72ms (cache updated)
+21 silly packumentCache full:https://registry.npmmirror.com/@executeautomation%2fplaywright-mcp-server set size:13768 disposed:false
+22 silly placeDep ROOT @executeautomation/playwright-mcp-server@1.0.9 REPLACE for:  want: 1.0.9
+23 silly fetch manifest express@^4.18.2
+24 silly packumentCache full:https://registry.npmmirror.com/express cache-miss
+25 http fetch GET 200 https://registry.npmmirror.com/express 103ms (cache updated)
+26 silly packumentCache full:https://registry.npmmirror.com/express set size:93869 disposed:false
+27 silly placeDep node_modules/@executeautomation/playwright-mcp-server express@4.22.1 OK for: @executeautomation/playwright-mcp-server@1.0.9 want: ^4.18.2
+28 silly fetch manifest accepts@~1.3.8
+29 silly packumentCache full:https://registry.npmmirror.com/accepts cache-miss
+30 silly fetch manifest array-flatten@1.1.1
+31 silly packumentCache full:https://registry.npmmirror.com/array-flatten cache-miss
+32 silly fetch manifest body-parser@~1.20.3
+33 silly packumentCache full:https://registry.npmmirror.com/body-parser cache-miss
+34 silly fetch manifest content-disposition@~0.5.4
+35 silly packumentCache full:https://registry.npmmirror.com/content-disposition cache-miss
+36 silly fetch manifest cookie-signature@~1.0.6
+37 silly packumentCache full:https://registry.npmmirror.com/cookie-signature cache-miss
+38 silly fetch manifest debug@2.6.9
+39 silly packumentCache full:https://registry.npmmirror.com/debug cache-miss
+40 silly fetch manifest finalhandler@~1.3.1
+41 silly packumentCache full:https://registry.npmmirror.com/finalhandler cache-miss
+42 silly fetch manifest fresh@~0.5.2
+43 silly packumentCache full:https://registry.npmmirror.com/fresh cache-miss
+44 silly fetch manifest merge-descriptors@1.0.3
+45 silly packumentCache full:https://registry.npmmirror.com/merge-descriptors cache-miss
+46 http fetch GET 200 https://registry.npmmirror.com/array-flatten 42ms (cache miss)
+47 silly packumentCache full:https://registry.npmmirror.com/array-flatten set size:5207 disposed:false
+48 silly fetch manifest methods@~1.1.2
+49 silly packumentCache full:https://registry.npmmirror.com/methods cache-miss
+50 http fetch GET 200 https://registry.npmmirror.com/methods 38ms (cache miss)
+51 silly packumentCache full:https://registry.npmmirror.com/methods set size:3334 disposed:false
+52 silly fetch manifest path-to-regexp@~0.1.12
+53 silly packumentCache full:https://registry.npmmirror.com/path-to-regexp cache-miss
+54 http fetch GET 200 https://registry.npmmirror.com/accepts 97ms (cache revalidated)
+55 silly packumentCache full:https://registry.npmmirror.com/accepts set size:78795 disposed:false
+56 silly fetch manifest safe-buffer@5.2.1
+57 silly packumentCache full:https://registry.npmmirror.com/safe-buffer cache-miss
+58 http fetch GET 200 https://registry.npmmirror.com/finalhandler 101ms (cache revalidated)
+59 silly packumentCache full:https://registry.npmmirror.com/finalhandler set size:78583 disposed:false
+60 silly fetch manifest send@~0.19.0
+61 silly packumentCache full:https://registry.npmmirror.com/send cache-miss
+62 http fetch GET 200 https://registry.npmmirror.com/content-disposition 103ms (cache revalidated)
+63 silly packumentCache full:https://registry.npmmirror.com/content-disposition set size:33497 disposed:false
+64 silly fetch manifest serve-static@~1.16.2
+65 silly packumentCache full:https://registry.npmmirror.com/serve-static cache-miss
+66 http fetch GET 200 https://registry.npmmirror.com/cookie-signature 107ms (cache updated)
+67 silly packumentCache full:https://registry.npmmirror.com/cookie-signature set size:6334 disposed:false
+68 silly fetch manifest type-is@~1.6.18
+69 silly packumentCache full:https://registry.npmmirror.com/type-is cache-miss
+70 http fetch GET 200 https://registry.npmmirror.com/merge-descriptors 122ms (cache revalidated)
+71 silly packumentCache full:https://registry.npmmirror.com/merge-descriptors set size:14723 disposed:false
+72 silly fetch manifest utils-merge@1.0.1
+73 silly packumentCache full:https://registry.npmmirror.com/utils-merge cache-miss
+74 http fetch GET 200 https://registry.npmmirror.com/fresh 124ms (cache revalidated)
+75 silly packumentCache full:https://registry.npmmirror.com/fresh set size:28920 disposed:false
+76 http fetch GET 200 https://registry.npmmirror.com/path-to-regexp 44ms (cache updated)
+77 silly packumentCache full:https://registry.npmmirror.com/path-to-regexp set size:28071 disposed:false
+78 http fetch GET 200 https://registry.npmmirror.com/send 33ms (cache revalidated)
+79 silly packumentCache full:https://registry.npmmirror.com/send set size:145441 disposed:false
+80 http fetch GET 200 https://registry.npmmirror.com/body-parser 138ms (cache updated)
+81 silly packumentCache full:https://registry.npmmirror.com/body-parser set size:36417 disposed:false
+82 http fetch GET 200 https://registry.npmmirror.com/safe-buffer 43ms (cache miss)
+83 silly packumentCache full:https://registry.npmmirror.com/safe-buffer set size:11685 disposed:false
+84 http fetch GET 200 https://registry.npmmirror.com/type-is 33ms (cache revalidated)
+85 silly packumentCache full:https://registry.npmmirror.com/type-is set size:83826 disposed:false
+86 http fetch GET 200 https://registry.npmmirror.com/serve-static 39ms (cache revalidated)
+87 silly packumentCache full:https://registry.npmmirror.com/serve-static set size:142555 disposed:false
+88 http fetch GET 200 https://registry.npmmirror.com/debug 164ms (cache updated)
+89 silly packumentCache full:https://registry.npmmirror.com/debug set size:32036 disposed:false
+90 http fetch GET 200 https://registry.npmmirror.com/utils-merge 64ms (cache miss)
+91 silly packumentCache full:https://registry.npmmirror.com/utils-merge set size:1862 disposed:false
+92 silly placeDep node_modules/@executeautomation/playwright-mcp-server accepts@1.3.8 OK for: express@4.22.1 want: ~1.3.8
+93 silly placeDep ROOT array-flatten@1.1.1 OK for: express@4.22.1 want: 1.1.1
+94 silly placeDep node_modules/@executeautomation/playwright-mcp-server body-parser@1.20.4 OK for: express@4.22.1 want: ~1.20.3
+95 silly placeDep node_modules/@executeautomation/playwright-mcp-server content-disposition@0.5.4 OK for: express@4.22.1 want: ~0.5.4
+96 silly placeDep node_modules/@executeautomation/playwright-mcp-server cookie-signature@1.0.7 OK for: express@4.22.1 want: ~1.0.6
+97 silly placeDep node_modules/@executeautomation/playwright-mcp-server debug@2.6.9 OK for: express@4.22.1 want: 2.6.9
+98 silly placeDep node_modules/@executeautomation/playwright-mcp-server finalhandler@1.3.2 OK for: express@4.22.1 want: ~1.3.1
+99 silly placeDep node_modules/@executeautomation/playwright-mcp-server fresh@0.5.2 OK for: express@4.22.1 want: ~0.5.2
+100 silly placeDep node_modules/@executeautomation/playwright-mcp-server merge-descriptors@1.0.3 OK for: express@4.22.1 want: 1.0.3
+101 silly placeDep ROOT methods@1.1.2 OK for: express@4.22.1 want: ~1.1.2
+102 silly placeDep node_modules/@executeautomation/playwright-mcp-server path-to-regexp@0.1.12 OK for: express@4.22.1 want: ~0.1.12
+103 silly placeDep ROOT safe-buffer@5.2.1 OK for: express@4.22.1 want: 5.2.1
+104 silly placeDep node_modules/@executeautomation/playwright-mcp-server send@0.19.1 OK for: express@4.22.1 want: ~0.19.0
+105 silly placeDep node_modules/@executeautomation/playwright-mcp-server serve-static@1.16.2 OK for: express@4.22.1 want: ~1.16.2
+106 silly placeDep node_modules/@executeautomation/playwright-mcp-server type-is@1.6.18 OK for: express@4.22.1 want: ~1.6.18
+107 silly placeDep ROOT utils-merge@1.0.1 OK for: express@4.22.1 want: 1.0.1
+108 silly fetch manifest mime-types@~2.1.34
+109 silly packumentCache full:https://registry.npmmirror.com/mime-types cache-miss
+110 silly fetch manifest negotiator@0.6.3
+111 silly packumentCache full:https://registry.npmmirror.com/negotiator cache-miss
+112 silly fetch manifest destroy@~1.2.0
+113 silly packumentCache full:https://registry.npmmirror.com/destroy cache-miss
+114 silly fetch manifest iconv-lite@~0.4.24
+115 silly packumentCache full:https://registry.npmmirror.com/iconv-lite cache-miss
+116 silly fetch manifest raw-body@~2.5.3
+117 silly packumentCache full:https://registry.npmmirror.com/raw-body cache-miss
+118 silly fetch manifest ms@2.0.0
+119 silly packumentCache full:https://registry.npmmirror.com/ms cache-miss
+120 silly fetch manifest mime@1.6.0
+121 silly packumentCache full:https://registry.npmmirror.com/mime cache-miss
+122 silly fetch manifest destroy@1.2.0
+123 silly packumentCache full:https://registry.npmmirror.com/destroy cache-miss
+124 silly fetch manifest statuses@2.0.1
+125 silly packumentCache full:https://registry.npmmirror.com/statuses cache-miss
+126 http fetch GET 200 https://registry.npmmirror.com/mime-types 39ms (cache revalidated)
+127 silly packumentCache full:https://registry.npmmirror.com/mime-types set size:123243 disposed:false
+128 silly fetch manifest http-errors@2.0.0
+129 silly packumentCache full:https://registry.npmmirror.com/http-errors cache-miss
+130 http fetch GET 200 https://registry.npmmirror.com/negotiator 47ms (cache revalidated)
+131 silly packumentCache full:https://registry.npmmirror.com/negotiator set size:52505 disposed:false
+132 silly fetch manifest send@0.19.0
+133 silly packumentCache full:https://registry.npmmirror.com/send cache-hit
+134 silly fetch manifest media-typer@0.3.0
+135 silly packumentCache full:https://registry.npmmirror.com/media-typer cache-miss
+136 http fetch GET 200 https://registry.npmmirror.com/iconv-lite 53ms (cache updated)
+137 silly packumentCache full:https://registry.npmmirror.com/iconv-lite set size:18252 disposed:false
+138 silly fetch manifest mime-types@~2.1.24
+139 silly packumentCache full:https://registry.npmmirror.com/mime-types cache-hit
+140 http fetch GET 200 https://registry.npmmirror.com/statuses 65ms (cache revalidated)
+141 silly packumentCache full:https://registry.npmmirror.com/statuses set size:34728 disposed:false
+142 http fetch GET 200 https://registry.npmmirror.com/destroy 67ms (cache miss)
+143 silly packumentCache full:https://registry.npmmirror.com/destroy set size:5387 disposed:false
+144 http fetch GET 200 https://registry.npmmirror.com/mime 67ms (cache miss)
+145 silly packumentCache full:https://registry.npmmirror.com/mime set size:20849 disposed:false
+146 http fetch GET 200 https://registry.npmmirror.com/destroy 70ms (cache miss)
+147 silly packumentCache full:https://registry.npmmirror.com/destroy set size:5387 disposed:false
+148 silly packumentCache full:https://registry.npmmirror.com/destroy dispose
+149 http fetch GET 200 https://registry.npmmirror.com/http-errors 37ms (cache updated)
+150 silly packumentCache full:https://registry.npmmirror.com/http-errors set size:13920 disposed:false
+151 http fetch GET 200 https://registry.npmmirror.com/ms 79ms (cache updated)
+152 silly packumentCache full:https://registry.npmmirror.com/ms set size:15985 disposed:false
+153 http fetch GET 200 https://registry.npmmirror.com/raw-body 84ms (cache updated)
+154 silly packumentCache full:https://registry.npmmirror.com/raw-body set size:23576 disposed:false
+155 http fetch GET 200 https://registry.npmmirror.com/media-typer 36ms (cache revalidated)
+156 silly packumentCache full:https://registry.npmmirror.com/media-typer set size:16908 disposed:false
+157 silly placeDep node_modules/@executeautomation/playwright-mcp-server mime-types@2.1.35 OK for: accepts@1.3.8 want: ~2.1.34
+158 silly placeDep node_modules/@executeautomation/playwright-mcp-server negotiator@0.6.3 OK for: accepts@1.3.8 want: 0.6.3
+159 silly fetch manifest mime-db@1.52.0
+160 silly packumentCache full:https://registry.npmmirror.com/mime-db cache-miss
+161 http fetch GET 200 https://registry.npmmirror.com/mime-db 45ms (cache revalidated)
+162 silly packumentCache full:https://registry.npmmirror.com/mime-db set size:147903 disposed:false
+163 silly placeDep ROOT destroy@1.2.0 OK for: body-parser@1.20.4 want: ~1.2.0
+164 silly placeDep node_modules/@executeautomation/playwright-mcp-server iconv-lite@0.4.24 OK for: body-parser@1.20.4 want: ~0.4.24
+165 silly placeDep node_modules/@executeautomation/playwright-mcp-server raw-body@2.5.3 OK for: body-parser@1.20.4 want: ~2.5.3
+166 silly placeDep node_modules/@executeautomation/playwright-mcp-server/node_modules/debug ms@2.0.0 OK for: debug@2.6.9 want: 2.0.0
+167 silly placeDep node_modules/@executeautomation/playwright-mcp-server mime-db@1.52.0 OK for: mime-types@2.1.35 want: 1.52.0
+168 silly placeDep node_modules/@executeautomation/playwright-mcp-server/node_modules/send http-errors@2.0.0 OK for: send@0.19.1 want: 2.0.0
+169 silly placeDep ROOT mime@1.6.0 OK for: send@0.19.1 want: 1.6.0
+170 silly placeDep node_modules/@executeautomation/playwright-mcp-server/node_modules/send statuses@2.0.1 OK for: send@0.19.1 want: 2.0.1
+171 silly placeDep node_modules/@executeautomation/playwright-mcp-server/node_modules/serve-static send@0.19.0 OK for: serve-static@1.16.2 want: 0.19.0
+172 silly fetch manifest encodeurl@~1.0.2
+173 silly packumentCache full:https://registry.npmmirror.com/encodeurl cache-miss
+174 http fetch GET 200 https://registry.npmmirror.com/encodeurl 36ms (cache revalidated)
+175 silly packumentCache full:https://registry.npmmirror.com/encodeurl set size:12335 disposed:false
+176 silly placeDep node_modules/@executeautomation/playwright-mcp-server media-typer@0.3.0 OK for: type-is@1.6.18 want: 0.3.0
+177 silly placeDep node_modules/@executeautomation/playwright-mcp-server/node_modules/serve-static/node_modules/send encodeurl@1.0.2 OK for: send@0.19.0 want: ~1.0.2
+178 silly placeDep node_modules/@executeautomation/playwright-mcp-server/node_modules/serve-static http-errors@2.0.0 OK for: send@0.19.0 want: 2.0.0
+179 silly placeDep node_modules/@executeautomation/playwright-mcp-server/node_modules/serve-static statuses@2.0.1 OK for: send@0.19.0 want: 2.0.1
+180 silly reify mark retired [
+180 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@executeautomation/playwright-mcp-server',
+180 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/.bin/playwright-mcp-server'
+180 silly reify ]
+181 silly reify moves {
+181 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@executeautomation/playwright-mcp-server': '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@executeautomation/.playwright-mcp-server-eA8ktcGs',
+181 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/.bin/playwright-mcp-server': '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/.bin/.playwright-mcp-server-Olljd3j2'
+181 silly reify }
+182 silly audit bulk request {
+182 silly audit   '@actions/core': [ '1.11.1' ],
+182 silly audit   '@actions/exec': [ '1.1.1' ],
+182 silly audit   '@actions/http-client': [ '2.2.3' ],
+182 silly audit   '@actions/io': [ '1.1.3' ],
+182 silly audit   '@ai-sdk/openai': [ '1.3.24' ],
+182 silly audit   '@ai-sdk/provider': [ '1.1.3' ],
+182 silly audit   '@ai-sdk/provider-utils': [ '2.2.8' ],
+182 silly audit   '@ai-sdk/react': [ '1.2.12' ],
+182 silly audit   '@ai-sdk/ui-utils': [ '1.2.11' ],
+182 silly audit   '@anthropic-ai/sdk': [ '0.8.1' ],
+182 silly audit   '@esbuild/aix-ppc64': [ '0.27.1' ],
+182 silly audit   '@esbuild/android-arm': [ '0.27.1' ],
+182 silly audit   '@esbuild/android-arm64': [ '0.27.1' ],
+182 silly audit   '@esbuild/android-x64': [ '0.27.1' ],
+182 silly audit   '@esbuild/darwin-arm64': [ '0.27.1' ],
+182 silly audit   '@esbuild/darwin-x64': [ '0.27.1' ],
+182 silly audit   '@esbuild/freebsd-arm64': [ '0.27.1' ],
+182 silly audit   '@esbuild/freebsd-x64': [ '0.27.1' ],
+182 silly audit   '@esbuild/linux-arm': [ '0.27.1' ],
+182 silly audit   '@esbuild/linux-arm64': [ '0.27.1' ],
+182 silly audit   '@esbuild/linux-ia32': [ '0.27.1' ],
+182 silly audit   '@esbuild/linux-loong64': [ '0.27.1' ],
+182 silly audit   '@esbuild/linux-mips64el': [ '0.27.1' ],
+182 silly audit   '@esbuild/linux-ppc64': [ '0.27.1' ],
+182 silly audit   '@esbuild/linux-riscv64': [ '0.27.1' ],
+182 silly audit   '@esbuild/linux-s390x': [ '0.27.1' ],
+182 silly audit   '@esbuild/linux-x64': [ '0.27.1' ],
+182 silly audit   '@esbuild/netbsd-arm64': [ '0.27.1' ],
+182 silly audit   '@esbuild/netbsd-x64': [ '0.27.1' ],
+182 silly audit   '@esbuild/openbsd-arm64': [ '0.27.1' ],
+182 silly audit   '@esbuild/openbsd-x64': [ '0.27.1' ],
+182 silly audit   '@esbuild/openharmony-arm64': [ '0.27.1' ],
+182 silly audit   '@esbuild/sunos-x64': [ '0.27.1' ],
+182 silly audit   '@esbuild/win32-arm64': [ '0.27.1' ],
+182 silly audit   '@esbuild/win32-ia32': [ '0.27.1' ],
+182 silly audit   '@esbuild/win32-x64': [ '0.27.1' ],
+182 silly audit   '@fastify/busboy': [ '2.1.1' ],
+182 silly audit   '@modelcontextprotocol/sdk': [ '1.11.1' ],
+182 silly audit   '@opentelemetry/api': [ '1.9.0' ],
+182 silly audit   '@playwright/browser-chromium': [ '1.53.1' ],
+182 silly audit   '@playwright/browser-firefox': [ '1.53.1' ],
+182 silly audit   '@playwright/browser-webkit': [ '1.53.1' ],
+182 silly audit   '@playwright/test': [ '1.57.0' ],
+182 silly audit   playwright: [ '1.57.0', '1.53.1' ],
+182 silly audit   'playwright-core': [ '1.57.0', '1.53.1' ],
+182 silly audit   '@types/diff-match-patch': [ '1.0.36' ],
+182 silly audit   '@types/node': [ '18.19.130' ],
+182 silly audit   '@types/node-fetch': [ '2.6.13' ],
+182 silly audit   'abort-controller': [ '3.0.0' ],
+182 silly audit   accepts: [ '2.0.0', '1.3.8' ],
+182 silly audit   agentkeepalive: [ '4.6.0' ],
+182 silly audit   ai: [ '4.3.19' ],
+182 silly audit   'ansi-styles': [ '4.3.0' ],
+182 silly audit   asynckit: [ '0.4.0' ],
+182 silly audit   'base-64': [ '0.1.0' ],
+182 silly audit   'body-parser': [ '2.2.1', '1.20.4' ],
+182 silly audit   bytes: [ '3.1.2' ],
+182 silly audit   'call-bind-apply-helpers': [ '1.0.2' ],
+182 silly audit   'call-bound': [ '1.0.4' ],
+182 silly audit   chalk: [ '4.1.2', '5.6.2' ],
+182 silly audit   charenc: [ '0.0.2' ],
+182 silly audit   'color-convert': [ '2.0.1' ],
+182 silly audit   'color-name': [ '1.1.4' ],
+182 silly audit   'combined-stream': [ '1.0.8' ],
+182 silly audit   'content-disposition': [ '1.0.1', '0.5.4' ],
+182 silly audit   'content-type': [ '1.0.5' ],
+182 silly audit   cookie: [ '0.7.2' ],
+182 silly audit   'cookie-signature': [ '1.2.2', '1.0.7' ],
+182 silly audit   cors: [ '2.8.5' ],
+182 silly audit   'cross-spawn': [ '7.0.6' ],
+182 silly audit   crypt: [ '0.0.2' ],
+182 silly audit   debug: [ '4.4.3', '2.6.9' ],
+182 silly audit   'delayed-stream': [ '1.0.0' ],
+182 silly audit   depd: [ '2.0.0' ],
+182 silly audit   dequal: [ '2.0.3' ],
+182 silly audit   'diff-match-patch': [ '1.0.5' ],
+182 silly audit   'digest-fetch': [ '1.3.0' ],
+182 silly audit   dotenv: [ '16.6.1' ],
+182 silly audit   'dunder-proto': [ '1.0.1' ],
+182 silly audit   'ee-first': [ '1.1.1' ],
+182 silly audit   encodeurl: [ '2.0.0', '1.0.2' ],
+182 silly audit   'es-define-property': [ '1.0.1' ],
+182 silly audit   'es-errors': [ '1.3.0' ],
+182 silly audit   'es-object-atoms': [ '1.1.1' ],
+182 silly audit   'es-set-tostringtag': [ '2.1.0' ],
+182 silly audit   esbuild: [ '0.27.1' ],
+182 silly audit   'escape-html': [ '1.0.3' ],
+182 silly audit   etag: [ '1.8.1' ],
+182 silly audit   'event-target-shim': [ '5.0.1' ],
+182 silly audit   eventsource: [ '3.0.7' ],
+182 silly audit   'eventsource-parser': [ '3.0.6' ],
+182 silly audit   express: [ '5.2.1', '4.22.1' ],
+182 silly audit   'express-rate-limit': [ '7.5.1' ],
+182 silly audit   finalhandler: [ '2.1.1', '1.3.2' ],
+182 silly audit   'form-data': [ '4.0.5' ],
+182 silly audit   'form-data-encoder': [ '1.7.2' ],
+182 silly audit   'mime-db': [ '1.52.0', '1.54.0' ],
+182 silly audit   'mime-types': [ '2.1.35', '3.0.2' ],
+182 silly audit   'formdata-node': [ '4.4.1' ],
+182 silly audit   'web-streams-polyfill': [ '4.0.0-beta.3', '3.3.3' ],
+182 silly audit   forwarded: [ '0.2.0' ],
+182 silly audit   fresh: [ '2.0.0', '0.5.2' ],
+182 silly audit   fsevents: [ '2.3.2', '2.3.3' ],
+182 silly audit   'function-bind': [ '1.1.2' ],
+182 silly audit   'get-intrinsic': [ '1.3.0' ],
+182 silly audit   'get-proto': [ '1.0.1' ],
+182 silly audit   'get-tsconfig': [ '4.13.0' ],
+182 silly audit   gopd: [ '1.2.0' ],
+182 silly audit   'has-flag': [ '4.0.0' ],
+182 silly audit   'has-symbols': [ '1.1.0' ],
+182 silly audit   'has-tostringtag': [ '1.0.2' ],
+182 silly audit   hasown: [ '2.0.2' ],
+182 silly audit   'http-errors': [ '2.0.1', '2.0.0' ],
+182 silly audit   'humanize-ms': [ '1.2.1' ],
+182 silly audit   'iconv-lite': [ '0.7.0', '0.4.24' ],
+182 silly audit   inherits: [ '2.0.4' ],
+182 silly audit   'ipaddr.js': [ '1.9.1' ],
+182 silly audit   'is-buffer': [ '1.1.6' ],
+182 silly audit   'is-promise': [ '4.0.0' ],
+182 silly audit   isexe: [ '2.0.0' ],
+182 silly audit   'json-schema': [ '0.4.0' ],
+182 silly audit   jsondiffpatch: [ '0.6.0' ],
+182 silly audit   'math-intrinsics': [ '1.1.0' ],
+182 silly audit   'mcp-evals': [ '1.0.18' ],
+182 silly audit   md5: [ '2.3.0' ],
+182 silly audit   'media-typer': [ '1.1.0', '0.3.0' ],
+182 silly audit   'merge-descriptors': [ '2.0.0', '1.0.3' ],
+182 silly audit   ms: [ '2.1.3', '2.0.0' ],
+182 silly audit   nanoid: [ '3.3.11' ],
+182 silly audit   negotiator: [ '1.0.0', '0.6.3' ],
+182 silly audit   'node-domexception': [ '1.0.0' ],
+182 silly audit   'node-fetch': [ '2.7.0' ],
+182 silly audit   'object-assign': [ '4.1.1' ],
+182 silly audit   'object-inspect': [ '1.13.4' ],
+182 silly audit   'on-finished': [ '2.4.1' ],
+182 silly audit   once: [ '1.4.0' ],
+182 silly audit   openai: [ '4.104.0' ],
+182 silly audit   parseurl: [ '1.3.3' ],
+182 silly audit   'path-key': [ '3.1.1' ],
+182 silly audit   'path-to-regexp': [ '8.3.0', '0.1.12' ],
+182 silly audit   'pkce-challenge': [ '5.0.1' ],
+182 silly audit   'proxy-addr': [ '2.0.7' ],
+182 silly audit   qs: [ '6.14.0' ],
+182 silly audit   'range-parser': [ '1.2.1' ],
+182 silly audit   'raw-body': [ '3.0.2', '2.5.3' ],
+182 silly audit   react: [ '19.2.1' ],
+182 silly audit   'resolve-pkg-maps': [ '1.0.0' ],
+182 silly audit   router: [ '2.2.0' ],
+182 silly audit   'safer-buffer': [ '2.1.2' ],
+182 silly audit   'secure-json-parse': [ '2.7.0' ],
+182 silly audit   send: [ '1.2.0', '0.19.1', '0.19.0' ],
+182 silly audit   'serve-static': [ '2.2.0', '1.16.2' ],
+182 silly audit   setprototypeof: [ '1.2.0' ],
+182 silly audit   'shebang-command': [ '2.0.0' ],
+182 silly audit   'shebang-regex': [ '3.0.0' ],
+182 silly audit   'side-channel': [ '1.1.0' ],
+182 silly audit   'side-channel-list': [ '1.0.0' ],
+182 silly audit   'side-channel-map': [ '1.0.1' ],
+182 silly audit   'side-channel-weakmap': [ '1.0.2' ],
+182 silly audit   statuses: [ '2.0.2', '2.0.1' ],
+182 silly audit   'supports-color': [ '7.2.0' ],
+182 silly audit   swr: [ '2.3.7' ],
+182 silly audit   throttleit: [ '2.1.0' ],
+182 silly audit   toidentifier: [ '1.0.1' ],
+182 silly audit   tr46: [ '0.0.3' ],
+182 silly audit   tsx: [ '4.21.0' ],
+182 silly audit   tunnel: [ '0.0.6' ],
+182 silly audit   'type-is': [ '2.0.1', '1.6.18' ],
+182 silly audit   undici: [ '5.29.0' ],
+182 silly audit   'undici-types': [ '5.26.5' ],
+182 silly audit   unpipe: [ '1.0.0' ],
+182 silly audit   'use-sync-external-store': [ '1.6.0' ],
+182 silly audit   uuid: [ '11.1.0' ],
+182 silly audit   vary: [ '1.1.2' ],
+182 silly audit   'webidl-conversions': [ '3.0.1' ],
+182 silly audit   'whatwg-url': [ '5.0.0' ],
+182 silly audit   which: [ '2.0.2' ],
+182 silly audit   wrappy: [ '1.0.2' ],
+182 silly audit   zod: [ '3.25.76' ],
+182 silly audit   'zod-to-json-schema': [ '3.25.0' ],
+182 silly audit   '@executeautomation/playwright-mcp-server': [ '1.0.9' ],
+182 silly audit   'array-flatten': [ '1.1.1' ],
+182 silly audit   methods: [ '1.1.2' ],
+182 silly audit   'safe-buffer': [ '5.2.1' ],
+182 silly audit   'utils-merge': [ '1.0.1' ],
+182 silly audit   destroy: [ '1.2.0' ],
+182 silly audit   mime: [ '1.6.0' ]
+182 silly audit }
+183 verbose reify failed optional dependency /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/win32-x64
+184 silly reify mark deleted [
+184 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/win32-x64'
+184 silly reify ]
+185 verbose reify failed optional dependency /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/win32-ia32
+186 silly reify mark deleted [
+186 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/win32-ia32'
+186 silly reify ]
+187 verbose reify failed optional dependency /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/win32-arm64
+188 silly reify mark deleted [
+188 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/win32-arm64'
+188 silly reify ]
+189 verbose reify failed optional dependency /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/sunos-x64
+190 silly reify mark deleted [
+190 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/sunos-x64'
+190 silly reify ]
+191 verbose reify failed optional dependency /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/openharmony-arm64
+192 silly reify mark deleted [
+192 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/openharmony-arm64'
+192 silly reify ]
+193 verbose reify failed optional dependency /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/openbsd-x64
+194 silly reify mark deleted [
+194 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/openbsd-x64'
+194 silly reify ]
+195 verbose reify failed optional dependency /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/openbsd-arm64
+196 silly reify mark deleted [
+196 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/openbsd-arm64'
+196 silly reify ]
+197 verbose reify failed optional dependency /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/netbsd-x64
+198 silly reify mark deleted [
+198 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/netbsd-x64'
+198 silly reify ]
+199 verbose reify failed optional dependency /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/netbsd-arm64
+200 silly reify mark deleted [
+200 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/netbsd-arm64'
+200 silly reify ]
+201 verbose reify failed optional dependency /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/linux-x64
+202 silly reify mark deleted [
+202 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/linux-x64'
+202 silly reify ]
+203 verbose reify failed optional dependency /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/linux-s390x
+204 silly reify mark deleted [
+204 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/linux-s390x'
+204 silly reify ]
+205 verbose reify failed optional dependency /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/linux-riscv64
+206 silly reify mark deleted [
+206 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/linux-riscv64'
+206 silly reify ]
+207 verbose reify failed optional dependency /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/linux-ppc64
+208 silly reify mark deleted [
+208 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/linux-ppc64'
+208 silly reify ]
+209 verbose reify failed optional dependency /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/linux-mips64el
+210 silly reify mark deleted [
+210 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/linux-mips64el'
+210 silly reify ]
+211 verbose reify failed optional dependency /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/linux-loong64
+212 silly reify mark deleted [
+212 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/linux-loong64'
+212 silly reify ]
+213 verbose reify failed optional dependency /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/linux-ia32
+214 silly reify mark deleted [
+214 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/linux-ia32'
+214 silly reify ]
+215 verbose reify failed optional dependency /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/linux-arm64
+216 silly reify mark deleted [
+216 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/linux-arm64'
+216 silly reify ]
+217 verbose reify failed optional dependency /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/linux-arm
+218 silly reify mark deleted [
+218 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/linux-arm'
+218 silly reify ]
+219 verbose reify failed optional dependency /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/freebsd-x64
+220 silly reify mark deleted [
+220 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/freebsd-x64'
+220 silly reify ]
+221 verbose reify failed optional dependency /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/freebsd-arm64
+222 silly reify mark deleted [
+222 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/freebsd-arm64'
+222 silly reify ]
+223 verbose reify failed optional dependency /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/android-x64
+224 silly reify mark deleted [
+224 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/android-x64'
+224 silly reify ]
+225 verbose reify failed optional dependency /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/android-arm64
+226 silly reify mark deleted [
+226 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/android-arm64'
+226 silly reify ]
+227 verbose reify failed optional dependency /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/android-arm
+228 silly reify mark deleted [
+228 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/android-arm'
+228 silly reify ]
+229 verbose reify failed optional dependency /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/aix-ppc64
+230 silly reify mark deleted [
+230 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/aix-ppc64'
+230 silly reify ]
+231 http cache utils-merge@https://registry.npmmirror.com/utils-merge/-/utils-merge-1.0.1.tgz 0ms (cache hit)
+232 http cache mime@https://registry.npmmirror.com/mime/-/mime-1.6.0.tgz 0ms (cache hit)
+233 http cache methods@https://registry.npmmirror.com/methods/-/methods-1.1.2.tgz 0ms (cache hit)
+234 http cache safe-buffer@https://registry.npmmirror.com/safe-buffer/-/safe-buffer-5.2.1.tgz 0ms (cache hit)
+235 http cache @esbuild/darwin-arm64@https://registry.npmmirror.com/@esbuild/darwin-arm64/-/darwin-arm64-0.27.1.tgz 0ms (cache hit)
+236 http cache fsevents@https://registry.npmmirror.com/fsevents/-/fsevents-2.3.2.tgz 0ms (cache hit)
+237 http cache array-flatten@https://registry.npmmirror.com/array-flatten/-/array-flatten-1.1.1.tgz 0ms (cache hit)
+238 http cache destroy@https://registry.npmmirror.com/destroy/-/destroy-1.2.0.tgz 0ms (cache hit)
+239 http cache raw-body@https://registry.npmmirror.com/raw-body/-/raw-body-2.5.3.tgz 0ms (cache hit)
+240 http cache fsevents@https://registry.npmmirror.com/fsevents/-/fsevents-2.3.3.tgz 0ms (cache hit)
+241 http cache iconv-lite@https://registry.npmmirror.com/iconv-lite/-/iconv-lite-0.4.24.tgz 0ms (cache hit)
+242 http cache mime-db@https://registry.npmmirror.com/mime-db/-/mime-db-1.52.0.tgz 0ms (cache hit)
+243 http cache negotiator@https://registry.npmmirror.com/negotiator/-/negotiator-0.6.3.tgz 0ms (cache hit)
+244 http cache type-is@https://registry.npmmirror.com/type-is/-/type-is-1.6.18.tgz 0ms (cache hit)
+245 http cache mime-types@https://registry.npmmirror.com/mime-types/-/mime-types-2.1.35.tgz 0ms (cache hit)
+246 http cache http-errors@https://registry.npmmirror.com/http-errors/-/http-errors-2.0.0.tgz 0ms (cache hit)
+247 http cache media-typer@https://registry.npmmirror.com/media-typer/-/media-typer-0.3.0.tgz 0ms (cache hit)
+248 http cache send@https://registry.npmmirror.com/send/-/send-0.19.0.tgz 0ms (cache hit)
+249 http cache encodeurl@https://registry.npmmirror.com/encodeurl/-/encodeurl-1.0.2.tgz 0ms (cache hit)
+250 http cache send@https://registry.npmmirror.com/send/-/send-0.19.1.tgz 0ms (cache hit)
+251 http cache statuses@https://registry.npmmirror.com/statuses/-/statuses-2.0.1.tgz 0ms (cache hit)
+252 http cache http-errors@https://registry.npmmirror.com/http-errors/-/http-errors-2.0.0.tgz 0ms (cache hit)
+253 http cache @executeautomation/playwright-mcp-server@https://registry.npmmirror.com/@executeautomation/playwright-mcp-server/-/playwright-mcp-server-1.0.9.tgz 0ms (cache hit)
+254 http cache finalhandler@https://registry.npmmirror.com/finalhandler/-/finalhandler-1.3.2.tgz 0ms (cache hit)
+255 http cache statuses@https://registry.npmmirror.com/statuses/-/statuses-2.0.1.tgz 0ms (cache hit)
+256 http cache fresh@https://registry.npmmirror.com/fresh/-/fresh-0.5.2.tgz 0ms (cache hit)
+257 http cache debug@https://registry.npmmirror.com/debug/-/debug-2.6.9.tgz 0ms (cache hit)
+258 http cache content-disposition@https://registry.npmmirror.com/content-disposition/-/content-disposition-0.5.4.tgz 0ms (cache hit)
+259 http cache accepts@https://registry.npmmirror.com/accepts/-/accepts-1.3.8.tgz 0ms (cache hit)
+260 http cache express@https://registry.npmmirror.com/express/-/express-4.22.1.tgz 0ms (cache hit)
+261 http cache serve-static@https://registry.npmmirror.com/serve-static/-/serve-static-1.16.2.tgz 0ms (cache hit)
+262 http cache cookie-signature@https://registry.npmmirror.com/cookie-signature/-/cookie-signature-1.0.7.tgz 0ms (cache hit)
+263 http cache path-to-regexp@https://registry.npmmirror.com/path-to-regexp/-/path-to-regexp-0.1.12.tgz 0ms (cache hit)
+264 http cache merge-descriptors@https://registry.npmmirror.com/merge-descriptors/-/merge-descriptors-1.0.3.tgz 0ms (cache hit)
+265 http cache ms@https://registry.npmmirror.com/ms/-/ms-2.0.0.tgz 0ms (cache hit)
+266 http cache body-parser@https://registry.npmmirror.com/body-parser/-/body-parser-1.20.4.tgz 0ms (cache hit)
+267 silly tarball no local data for utils-merge@https://registry.npmmirror.com/utils-merge/-/utils-merge-1.0.1.tgz. Extracting by manifest.
+268 silly tarball no local data for mime@https://registry.npmmirror.com/mime/-/mime-1.6.0.tgz. Extracting by manifest.
+269 silly tarball no local data for safe-buffer@https://registry.npmmirror.com/safe-buffer/-/safe-buffer-5.2.1.tgz. Extracting by manifest.
+270 silly tarball no local data for array-flatten@https://registry.npmmirror.com/array-flatten/-/array-flatten-1.1.1.tgz. Extracting by manifest.
+271 silly tarball no local data for methods@https://registry.npmmirror.com/methods/-/methods-1.1.2.tgz. Extracting by manifest.
+272 silly tarball no local data for destroy@https://registry.npmmirror.com/destroy/-/destroy-1.2.0.tgz. Extracting by manifest.
+273 silly tarball no local data for @esbuild/darwin-arm64@https://registry.npmmirror.com/@esbuild/darwin-arm64/-/darwin-arm64-0.27.1.tgz. Extracting by manifest.
+274 silly tarball no local data for raw-body@https://registry.npmmirror.com/raw-body/-/raw-body-2.5.3.tgz. Extracting by manifest.
+275 silly tarball no local data for iconv-lite@https://registry.npmmirror.com/iconv-lite/-/iconv-lite-0.4.24.tgz. Extracting by manifest.
+276 silly tarball no local data for negotiator@https://registry.npmmirror.com/negotiator/-/negotiator-0.6.3.tgz. Extracting by manifest.
+277 silly tarball no local data for type-is@https://registry.npmmirror.com/type-is/-/type-is-1.6.18.tgz. Extracting by manifest.
+278 silly tarball no local data for http-errors@https://registry.npmmirror.com/http-errors/-/http-errors-2.0.0.tgz. Extracting by manifest.
+279 silly tarball no local data for send@https://registry.npmmirror.com/send/-/send-0.19.0.tgz. Extracting by manifest.
+280 silly tarball no local data for encodeurl@https://registry.npmmirror.com/encodeurl/-/encodeurl-1.0.2.tgz. Extracting by manifest.
+281 silly tarball no local data for media-typer@https://registry.npmmirror.com/media-typer/-/media-typer-0.3.0.tgz. Extracting by manifest.
+282 silly tarball no local data for http-errors@https://registry.npmmirror.com/http-errors/-/http-errors-2.0.0.tgz. Extracting by manifest.
+283 silly tarball no local data for @executeautomation/playwright-mcp-server@https://registry.npmmirror.com/@executeautomation/playwright-mcp-server/-/playwright-mcp-server-1.0.9.tgz. Extracting by manifest.
+284 silly tarball no local data for send@https://registry.npmmirror.com/send/-/send-0.19.1.tgz. Extracting by manifest.
+285 silly tarball no local data for statuses@https://registry.npmmirror.com/statuses/-/statuses-2.0.1.tgz. Extracting by manifest.
+286 silly tarball no local data for statuses@https://registry.npmmirror.com/statuses/-/statuses-2.0.1.tgz. Extracting by manifest.
+287 silly tarball no local data for fresh@https://registry.npmmirror.com/fresh/-/fresh-0.5.2.tgz. Extracting by manifest.
+288 silly tarball no local data for debug@https://registry.npmmirror.com/debug/-/debug-2.6.9.tgz. Extracting by manifest.
+289 silly tarball no local data for content-disposition@https://registry.npmmirror.com/content-disposition/-/content-disposition-0.5.4.tgz. Extracting by manifest.
+290 silly tarball no local data for express@https://registry.npmmirror.com/express/-/express-4.22.1.tgz. Extracting by manifest.
+291 silly tarball no local data for finalhandler@https://registry.npmmirror.com/finalhandler/-/finalhandler-1.3.2.tgz. Extracting by manifest.
+292 silly tarball no local data for accepts@https://registry.npmmirror.com/accepts/-/accepts-1.3.8.tgz. Extracting by manifest.
+293 silly tarball no local data for cookie-signature@https://registry.npmmirror.com/cookie-signature/-/cookie-signature-1.0.7.tgz. Extracting by manifest.
+294 silly tarball no local data for merge-descriptors@https://registry.npmmirror.com/merge-descriptors/-/merge-descriptors-1.0.3.tgz. Extracting by manifest.
+295 silly tarball no local data for serve-static@https://registry.npmmirror.com/serve-static/-/serve-static-1.16.2.tgz. Extracting by manifest.
+296 silly tarball no local data for path-to-regexp@https://registry.npmmirror.com/path-to-regexp/-/path-to-regexp-0.1.12.tgz. Extracting by manifest.
+297 silly tarball no local data for ms@https://registry.npmmirror.com/ms/-/ms-2.0.0.tgz. Extracting by manifest.
+298 silly tarball no local data for body-parser@https://registry.npmmirror.com/body-parser/-/body-parser-1.20.4.tgz. Extracting by manifest.
+299 http fetch POST 404 https://registry.npmmirror.com/-/npm/v1/security/advisories/bulk 60ms
+300 silly audit bulk request failed [object Object]
+301 http fetch GET 200 https://cdn.npmmirror.com/packages/array-flatten/1.1.1/array-flatten-1.1.1.tgz 168ms (cache miss)
+302 http fetch GET 200 https://cdn.npmmirror.com/packages/mime/1.6.0/mime-1.6.0.tgz 168ms (cache miss)
+303 http fetch GET 200 https://cdn.npmmirror.com/packages/methods/1.1.2/methods-1.1.2.tgz 177ms (cache miss)
+304 http fetch GET 200 https://cdn.npmmirror.com/packages/destroy/1.2.0/destroy-1.2.0.tgz 184ms (cache miss)
+305 http fetch GET 200 https://cdn.npmmirror.com/packages/type-is/1.6.18/type-is-1.6.18.tgz 183ms (cache miss)
+306 http fetch GET 200 https://cdn.npmmirror.com/packages/http-errors/2.0.0/http-errors-2.0.0.tgz 184ms (cache miss)
+307 http fetch GET 200 https://cdn.npmmirror.com/packages/raw-body/2.5.3/raw-body-2.5.3.tgz 194ms (cache miss)
+308 http fetch GET 200 https://cdn.npmmirror.com/packages/media-typer/0.3.0/media-typer-0.3.0.tgz 203ms (cache miss)
+309 http fetch GET 200 https://cdn.npmmirror.com/packages/utils-merge/1.0.1/utils-merge-1.0.1.tgz 206ms (cache miss)
+310 http cache https://cdn.npmmirror.com/packages/http-errors/2.0.0/http-errors-2.0.0.tgz 235ms (cache hit)
+311 http fetch GET 200 https://cdn.npmmirror.com/packages/negotiator/0.6.3/negotiator-0.6.3.tgz 239ms (cache miss)
+312 http fetch GET 200 https://cdn.npmmirror.com/packages/encodeurl/1.0.2/encodeurl-1.0.2.tgz 270ms (cache miss)
+313 http fetch GET 200 https://cdn.npmmirror.com/packages/send/0.19.0/send-0.19.0.tgz 271ms (cache miss)
+314 http fetch POST 404 https://registry.npmmirror.com/-/npm/v1/security/audits/quick 231ms
+315 verbose audit error HttpErrorGeneral: 404 Not Found - POST https://registry.npmmirror.com/-/npm/v1/security/audits/quick - [NOT_IMPLEMENTED] /-/npm/v1/security/* not implemented yet
+315 verbose audit error     at /usr/local/lib/node_modules/npm/node_modules/npm-registry-fetch/lib/check-response.js:103:15
+315 verbose audit error     at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+315 verbose audit error     at async [getReport] (/usr/local/lib/node_modules/npm/node_modules/@npmcli/arborist/lib/audit-report.js:336:21)
+315 verbose audit error     at async AuditReport.run (/usr/local/lib/node_modules/npm/node_modules/@npmcli/arborist/lib/audit-report.js:106:19) {
+315 verbose audit error   headers: [Object: null prototype] {
+315 verbose audit error     server: [ 'Tengine' ],
+315 verbose audit error     date: [ 'Wed, 10 Dec 2025 09:03:17 GMT' ],
+315 verbose audit error     'content-type': [ 'application/json' ],
+315 verbose audit error     'transfer-encoding': [ 'chunked' ],
+315 verbose audit error     connection: [ 'keep-alive' ],
+315 verbose audit error     'strict-transport-security': [ 'max-age=5184000' ],
+315 verbose audit error     via: [ 'kunlun6.cn7737[,404666]' ],
+315 verbose audit error     'timing-allow-origin': [ '*' ],
+315 verbose audit error     eagleid: [ '7521a19a17653573972316757e' ],
+315 verbose audit error     'x-fetch-attempts': [ '1' ]
+315 verbose audit error   },
+315 verbose audit error   statusCode: 404,
+315 verbose audit error   code: 'E404',
+315 verbose audit error   method: 'POST',
+315 verbose audit error   uri: 'https://registry.npmmirror.com/-/npm/v1/security/audits/quick',
+315 verbose audit error   body: {
+315 verbose audit error     error: '[NOT_IMPLEMENTED] /-/npm/v1/security/* not implemented yet'
+315 verbose audit error   },
+315 verbose audit error   pkgid: undefined
+315 verbose audit error }
+316 silly audit error [object Object]
+317 silly audit report null
+318 http fetch GET 200 https://cdn.npmmirror.com/packages/accepts/1.3.8/accepts-1.3.8.tgz 307ms (cache miss)
+319 http fetch GET 200 https://cdn.npmmirror.com/packages/content-disposition/0.5.4/content-disposition-0.5.4.tgz 308ms (cache miss)
+320 http fetch GET 200 https://cdn.npmmirror.com/packages/cookie-signature/1.0.7/cookie-signature-1.0.7.tgz 309ms (cache miss)
+321 http fetch GET 200 https://cdn.npmmirror.com/packages/statuses/2.0.1/statuses-2.0.1.tgz 310ms (cache miss)
+322 http fetch GET 200 https://cdn.npmmirror.com/packages/fresh/0.5.2/fresh-0.5.2.tgz 310ms (cache miss)
+323 http fetch GET 200 https://cdn.npmmirror.com/packages/iconv-lite/0.4.24/iconv-lite-0.4.24.tgz 314ms (cache miss)
+324 http fetch GET 200 https://cdn.npmmirror.com/packages/%40executeautomation/playwright-mcp-server/1.0.9/playwright-mcp-server-1.0.9.tgz 316ms (cache miss)
+325 http cache https://cdn.npmmirror.com/packages/statuses/2.0.1/statuses-2.0.1.tgz 343ms (cache hit)
+326 http fetch GET 200 https://cdn.npmmirror.com/packages/path-to-regexp/0.1.12/path-to-regexp-0.1.12.tgz 352ms (cache miss)
+327 http fetch GET 200 https://cdn.npmmirror.com/packages/merge-descriptors/1.0.3/merge-descriptors-1.0.3.tgz 355ms (cache miss)
+328 http fetch GET 200 https://cdn.npmmirror.com/packages/debug/2.6.9/debug-2.6.9.tgz 364ms (cache miss)
+329 http fetch GET 200 https://cdn.npmmirror.com/packages/finalhandler/1.3.2/finalhandler-1.3.2.tgz 389ms (cache miss)
+330 http fetch GET 200 https://cdn.npmmirror.com/packages/send/0.19.1/send-0.19.1.tgz 391ms (cache miss)
+331 http fetch GET 200 https://cdn.npmmirror.com/packages/ms/2.0.0/ms-2.0.0.tgz 389ms (cache miss)
+332 http fetch GET 200 https://cdn.npmmirror.com/packages/serve-static/1.16.2/serve-static-1.16.2.tgz 391ms (cache miss)
+333 http fetch GET 200 https://cdn.npmmirror.com/packages/body-parser/1.20.4/body-parser-1.20.4.tgz 390ms (cache miss)
+334 http fetch GET 200 https://cdn.npmmirror.com/packages/safe-buffer/5.2.1/safe-buffer-5.2.1.tgz 396ms (cache miss)
+335 http fetch GET 200 https://cdn.npmmirror.com/packages/express/4.22.1/express-4.22.1.tgz 396ms (cache miss)
+336 http fetch GET 200 https://cdn.npmmirror.com/packages/%40esbuild/darwin-arm64/0.27.1/darwin-arm64-0.27.1.tgz 434ms (cache miss)
+337 verbose cwd /Users/apus
+338 verbose os Darwin 25.0.0
+339 verbose node v22.17.0
+340 verbose npm  v10.9.2
+341 verbose exit 0
+342 info ok

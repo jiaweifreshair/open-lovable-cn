@@ -1,4 +1,5 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { sandboxManager } from '@/lib/sandbox/sandbox-manager';
 
 declare global {
   var activeSandbox: any;
@@ -9,15 +10,51 @@ declare global {
 
 const RESTART_COOLDOWN_MS = 5000; // 5 second cooldown between restarts
 
-export async function POST() {
+/**
+ * 重启Vite开发服务器
+ *
+ * 支持两种调用方式：
+ * 1. 带sandboxId参数 - 使用sandboxManager获取正确的provider（推荐）
+ * 2. 无参数 - 使用全局变量fallback（向后兼容）
+ */
+export async function POST(request: NextRequest) {
   try {
-    // Check both v1 and v2 global references
-    const provider = global.activeSandbox || global.activeSandboxProvider;
-    
+    // 解析请求体获取sandboxId
+    let sandboxId: string | null = null;
+    try {
+      const body = await request.json();
+      sandboxId = body?.sandboxId || null;
+    } catch {
+      // 无请求体或解析失败，使用fallback逻辑
+    }
+
+    let provider: any = null;
+
+    // 优先使用sandboxId从sandboxManager获取provider
+    if (sandboxId) {
+      console.log(`[restart-vite] Looking up sandbox by ID: ${sandboxId}`);
+      provider = sandboxManager.getProvider(sandboxId);
+      if (provider) {
+        console.log(`[restart-vite] Found provider via sandboxManager for sandbox: ${sandboxId}`);
+      } else {
+        console.log(`[restart-vite] No provider found in sandboxManager for sandbox: ${sandboxId}, trying global fallback`);
+      }
+    }
+
+    // Fallback: 使用全局变量（向后兼容）
     if (!provider) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'No active sandbox' 
+      provider = global.activeSandbox || global.activeSandboxProvider;
+      if (provider) {
+        console.log('[restart-vite] Using global sandbox provider (fallback)');
+      }
+    }
+
+    if (!provider) {
+      return NextResponse.json({
+        success: false,
+        error: sandboxId
+          ? `No sandbox found for ID: ${sandboxId}`
+          : 'No active sandbox'
       }, { status: 400 });
     }
     

@@ -1,0 +1,23 @@
+0 verbose cli /usr/local/bin/node /usr/local/lib/node_modules/npm/bin/npm-cli.js
+1 info using npm@10.9.2
+2 info using node@v22.17.0
+3 silly config load:file:/usr/local/lib/node_modules/npm/npmrc
+4 silly config load:file:/Users/apus/.npmrc
+5 silly config load:file:/usr/local/etc/npmrc
+6 verbose title npm exec @executeautomation/playwright-mcp-server
+7 verbose argv "exec" "--yes" "--" "@executeautomation/playwright-mcp-server"
+8 verbose logfile logs-max:10 dir:/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_logs/2025-12-11T06_54_13_929Z-
+9 verbose logfile /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_logs/2025-12-11T06_54_13_929Z-debug-0.log
+10 silly logfile start cleaning logs, removing 1 files
+11 silly logfile done cleaning log files
+12 silly packumentCache heap:4345298944 maxSize:1086324736 maxEntrySize:543162368
+13 verbose shrinkwrap failed to load node_modules/.package-lock.json out of date, updated: node_modules
+14 http fetch GET 200 https://registry.npmmirror.com/@executeautomation%2fplaywright-mcp-server 71ms (cache revalidated)
+15 silly packumentCache heap:4345298944 maxSize:1086324736 maxEntrySize:543162368
+16 silly packumentCache heap:4345298944 maxSize:1086324736 maxEntrySize:543162368
+17 verbose cwd /Users/apus/Documents/Jetbay
+18 verbose os Darwin 25.0.0
+19 verbose node v22.17.0
+20 verbose npm  v10.9.2
+21 verbose exit 0
+22 info ok

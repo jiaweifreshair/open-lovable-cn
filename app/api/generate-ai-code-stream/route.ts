@@ -1588,12 +1588,66 @@ RULES:
           const finishReason = await result!.finishReason;
           console.log(`[generate-ai-code-stream] Loop ${loopCount} finished with reason: ${finishReason}`);
 
-          if (finishReason === 'length' && loopCount < maxLoops) {
+          // 🔥 CRITICAL FIX: Quick truncation detection BEFORE deciding on continuation
+          // This ensures we continue even if finishReason is 'unknown' (Gemini) or other non-standard values
+          let quickTruncationDetected = false;
+
+          if (loopCount < maxLoops) {
+            // Check 1: Unclosed file tags (most reliable indicator)
+            const fileOpenCount = (generatedCode.match(/<file path="/g) || []).length;
+            const fileCloseCount = (generatedCode.match(/<\/file>/g) || []).length;
+            if (fileOpenCount > fileCloseCount) {
+              quickTruncationDetected = true;
+              console.warn(`[generate-ai-code-stream] 🚨 Quick check: Unclosed file tags (${fileOpenCount} open, ${fileCloseCount} closed)`);
+            }
+
+            // Check 2: Missing App.jsx/App.tsx when components exist (critical for React apps)
+            if (!quickTruncationDetected && !isEdit) {
+              const hasComponents = generatedCode.includes('/components/') &&
+                                   (generatedCode.includes('.jsx') || generatedCode.includes('.tsx'));
+              const hasAppFile = generatedCode.includes('path="src/App.jsx"') ||
+                                generatedCode.includes('path="src/App.tsx"') ||
+                                generatedCode.includes('path="App.jsx"') ||
+                                generatedCode.includes('path="App.tsx"');
+
+              if (hasComponents && !hasAppFile) {
+                quickTruncationDetected = true;
+                console.warn('[generate-ai-code-stream] 🚨 Quick check: Missing App.jsx/App.tsx but has components');
+              }
+            }
+
+            // Check 3: Code ends with obvious truncation indicators
+            if (!quickTruncationDetected) {
+              const trimmedCode = generatedCode.trim();
+              const truncationEndings = [
+                trimmedCode.endsWith(','),
+                trimmedCode.endsWith('{'),
+                trimmedCode.endsWith('('),
+                trimmedCode.endsWith('<'),
+                trimmedCode.endsWith('className="'),
+                trimmedCode.endsWith('="'),
+                // Check if last line looks incomplete (no closing tag or brace)
+                !trimmedCode.endsWith('</file>') && !trimmedCode.endsWith('}') && fileOpenCount > 0
+              ];
+
+              if (truncationEndings.some(Boolean)) {
+                quickTruncationDetected = true;
+                console.warn('[generate-ai-code-stream] 🚨 Quick check: Code ends with truncation indicator');
+              }
+            }
+          }
+
+          // Decide on continuation: either by finishReason OR by truncation detection
+          if ((finishReason === 'length' || quickTruncationDetected) && loopCount < maxLoops) {
               continueGeneration = true;
-              console.log(`[generate-ai-code-stream] Output truncated (loop ${loopCount}), continuing generation...`);
-              await sendProgress({ type: 'status', message: 'Output truncated, continuing generation...' });
+              const reason = quickTruncationDetected ? 'truncation detected' : 'token limit reached';
+              console.log(`[generate-ai-code-stream] 🔄 Output incomplete (loop ${loopCount}, reason: ${reason}), continuing generation...`);
+              await sendProgress({ type: 'status', message: `Output incomplete (${reason}), continuing generation...` });
           } else {
               continueGeneration = false;
+              if (quickTruncationDetected && loopCount >= maxLoops) {
+                console.error(`[generate-ai-code-stream] ❌ Truncation detected but max loops (${maxLoops}) reached!`);
+              }
           }
 
         } while (continueGeneration);
@@ -2099,6 +2153,62 @@ Provide the complete file content without any truncation. Include all necessary 
           }
         }
         
+        // ===========================
+        // 生成阶段依赖自检与自动补全（更彻底的闭环）
+        // ===========================
+        try {
+          // 保留原始生成结果中的非 <file> 段落（packages/commands/structure 等），避免自动补全后丢失元信息
+          const nonFileSections =
+            generatedCode.match(/<(package|packages|explanation|command|structure|template)[\s\S]*?<\/\1>/g) || [];
+          const nonFileText = nonFileSections.join('\n\n');
+
+          const extractedFiles = extractFiles(generatedCode);
+          const depIssues = validateDependencies(extractedFiles);
+          const completenessIssues = validateCompleteness(extractedFiles);
+          const fixableErrors = [...depIssues, ...completenessIssues].filter(i => i.severity === 'error');
+
+          if (fixableErrors.length > 0) {
+            console.warn('[generate-ai-code-stream] 🔧 Detected dependency/completeness errors, starting auto-fix:', fixableErrors);
+            await sendProgress({
+              type: 'status',
+              message: `检测到 ${fixableErrors.length} 个依赖/截断问题，开始自动补全...`
+            });
+
+            const fixResult = await autoFix(
+              generatedCode,
+              modelProvider(actualModel),
+              2
+            );
+
+            if (fixResult.fixedFiles.length > 0) {
+              generatedCode = assembleGeneratedCode(fixResult.fixedFiles);
+              if (nonFileText.trim()) {
+                generatedCode += `\n\n${nonFileText}\n`;
+              }
+
+              // 重新计算 files/componentCount，确保前端拿到的是修复后的结构
+              files.length = 0;
+              const reExtracted = extractFiles(generatedCode);
+              for (const f of reExtracted) {
+                files.push({ path: f.path, content: f.content });
+              }
+              componentCount = reExtracted.filter(f => f.path.includes('components/')).length;
+
+              console.log('[generate-ai-code-stream] ✅ Auto-fix applied. Remaining issues:', fixResult.remainingIssues);
+              await sendProgress({
+                type: 'status',
+                message: '自动补全完成，已生成缺失文件。'
+              });
+            }
+          }
+        } catch (autoFixError) {
+          console.error('[generate-ai-code-stream] Auto-fix failed:', autoFixError);
+          await sendProgress({
+            type: 'warning',
+            message: '自动补全阶段发生错误，请手动检查生成结果。'
+          });
+        }
+
         // Send completion with packages info
         await sendProgress({ 
           type: 'complete', 

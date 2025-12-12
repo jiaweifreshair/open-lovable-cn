@@ -160,13 +160,31 @@ class SandboxManager {
   }
 }
 
-// Export singleton instance
-export const sandboxManager = new SandboxManager();
-
 // Also maintain backward compatibility with global state
 declare global {
   var sandboxManager: SandboxManager;
 }
 
-// Ensure the global reference points to our singleton
-global.sandboxManager = sandboxManager;
+/**
+ * 获取或创建 SandboxManager 单例
+ *
+ * 关键修复：在 Next.js 开发模式下，模块热重载会导致单例被重新创建。
+ * 通过先检查 global.sandboxManager 是否存在，我们确保所有 API 路由
+ * 使用同一个 SandboxManager 实例，从而保持 sandbox 状态的一致性。
+ */
+function getSandboxManagerSingleton(): SandboxManager {
+  // 如果全局已存在实例，直接返回（保持状态）
+  if (global.sandboxManager) {
+    console.log('[SandboxManager] Reusing existing global instance');
+    return global.sandboxManager;
+  }
+
+  // 否则创建新实例并存储到全局
+  console.log('[SandboxManager] Creating new singleton instance');
+  const instance = new SandboxManager();
+  global.sandboxManager = instance;
+  return instance;
+}
+
+// Export singleton instance - 使用函数确保热重载安全
+export const sandboxManager = getSandboxManagerSingleton();

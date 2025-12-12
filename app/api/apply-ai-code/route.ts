@@ -666,10 +666,11 @@ body {
       }
     }
     
-    // Check for missing imports in App.jsx
+    // Check for missing imports in App.jsx / App.tsx
     const missingImports: string[] = [];
     const appFile = parsed.files.find(f => 
-      f.path === 'src/App.jsx' || f.path === 'App.jsx'
+      f.path === 'src/App.jsx' || f.path === 'App.jsx' ||
+      f.path === 'src/App.tsx' || f.path === 'App.tsx'
     );
     
     if (appFile) {
@@ -695,8 +696,12 @@ body {
         const possiblePaths = [
           basePath + '.jsx',
           basePath + '.js',
+          basePath + '.tsx',
+          basePath + '.ts',
           basePath + '/index.jsx',
-          basePath + '/index.js'
+          basePath + '/index.js',
+          basePath + '/index.tsx',
+          basePath + '/index.ts'
         ];
         
         const fileExists = parsed.files.some(f => 
@@ -718,45 +723,11 @@ body {
       message: `Applied ${results.filesCreated.length} files successfully`
     };
     
-    // Handle missing imports automatically
+    // 生成阶段已做自检补全，这里仅兜底提示，避免落盘不完整工程
     if (missingImports.length > 0) {
-      console.warn('[apply-ai-code] Missing imports detected:', missingImports);
-      
-      // Automatically generate missing components
-      try {
-        console.log('[apply-ai-code] Auto-generating missing components...');
-        
-        const autoCompleteResponse = await fetch(
-          `${request.nextUrl.origin}/api/auto-complete-components`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              missingImports,
-              model: 'claude-sonnet-4-20250514'
-            })
-          }
-        );
-        
-        const autoCompleteData = await autoCompleteResponse.json();
-        
-        if (autoCompleteData.success) {
-          responseData.autoCompleted = true;
-          responseData.autoCompletedComponents = autoCompleteData.components;
-          responseData.message = `Applied ${results.filesCreated.length} files + auto-generated ${autoCompleteData.files} missing components`;
-          
-          // Add auto-completed files to results
-          results.filesCreated.push(...autoCompleteData.components);
-        } else {
-          // If auto-complete fails, still warn the user
-          responseData.warning = `Missing ${missingImports.length} imported components: ${missingImports.join(', ')}`;
-          responseData.missingImports = missingImports;
-        }
-      } catch (error) {
-        console.error('[apply-ai-code] Auto-complete failed:', error);
-        responseData.warning = `Missing ${missingImports.length} imported components: ${missingImports.join(', ')}`;
-        responseData.missingImports = missingImports;
-      }
+      console.warn('[apply-ai-code] Missing imports detected after generation auto-fix:', missingImports);
+      responseData.warning = `Missing ${missingImports.length} imported components: ${missingImports.join(', ')}`;
+      responseData.missingImports = missingImports;
     }
     
     // Track applied files in conversation state

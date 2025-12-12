@@ -1,0 +1,356 @@
+0 verbose cli /usr/local/bin/node /usr/local/lib/node_modules/npm/bin/npm-cli.js
+1 info using npm@10.9.2
+2 info using node@v22.17.0
+3 silly config load:file:/usr/local/lib/node_modules/npm/npmrc
+4 silly config load:file:/Users/apus/.npmrc
+5 silly config load:file:/usr/local/etc/npmrc
+6 verbose title npm exec @executeautomation/playwright-mcp-server
+7 verbose argv "exec" "--yes" "--" "@executeautomation/playwright-mcp-server"
+8 verbose logfile logs-max:10 dir:/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_logs/2025-12-11T14_34_26_458Z-
+9 verbose logfile /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_logs/2025-12-11T14_34_26_458Z-debug-0.log
+10 silly logfile start cleaning logs, removing 1 files
+11 silly logfile done cleaning log files
+12 silly packumentCache heap:4345298944 maxSize:1086324736 maxEntrySize:543162368
+13 verbose shrinkwrap failed to load node_modules/.package-lock.json out of date, updated: node_modules
+14 http fetch GET 200 https://registry.npmmirror.com/@executeautomation%2fplaywright-mcp-server 267ms (cache updated)
+15 silly packumentCache heap:4345298944 maxSize:1086324736 maxEntrySize:543162368
+16 silly packumentCache heap:4345298944 maxSize:1086324736 maxEntrySize:543162368
+17 silly idealTree buildDeps
+18 silly fetch manifest @executeautomation/playwright-mcp-server@1.0.11
+19 silly packumentCache full:https://registry.npmmirror.com/@executeautomation%2fplaywright-mcp-server cache-miss
+20 http fetch GET 200 https://registry.npmmirror.com/@executeautomation%2fplaywright-mcp-server 159ms (cache updated)
+21 silly packumentCache full:https://registry.npmmirror.com/@executeautomation%2fplaywright-mcp-server set size:14937 disposed:false
+22 silly placeDep ROOT @executeautomation/playwright-mcp-server@1.0.11 REPLACE for:  want: 1.0.11
+23 silly reify mark retired [
+23 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@executeautomation/playwright-mcp-server',
+23 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/.bin/playwright-mcp-server'
+23 silly reify ]
+24 silly reify moves {
+24 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@executeautomation/playwright-mcp-server': '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@executeautomation/.playwright-mcp-server-eA8ktcGs',
+24 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/.bin/playwright-mcp-server': '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/.bin/.playwright-mcp-server-Olljd3j2'
+24 silly reify }
+25 silly audit bulk request {
+25 silly audit   '@actions/core': [ '1.11.1' ],
+25 silly audit   '@actions/exec': [ '1.1.1' ],
+25 silly audit   '@actions/http-client': [ '2.2.3' ],
+25 silly audit   '@actions/io': [ '1.1.3' ],
+25 silly audit   '@ai-sdk/openai': [ '1.3.24' ],
+25 silly audit   '@ai-sdk/provider': [ '1.1.3' ],
+25 silly audit   '@ai-sdk/provider-utils': [ '2.2.8' ],
+25 silly audit   '@ai-sdk/react': [ '1.2.12' ],
+25 silly audit   '@ai-sdk/ui-utils': [ '1.2.11' ],
+25 silly audit   '@anthropic-ai/sdk': [ '0.8.1' ],
+25 silly audit   '@esbuild/aix-ppc64': [ '0.27.1' ],
+25 silly audit   '@esbuild/android-arm': [ '0.27.1' ],
+25 silly audit   '@esbuild/android-arm64': [ '0.27.1' ],
+25 silly audit   '@esbuild/android-x64': [ '0.27.1' ],
+25 silly audit   '@esbuild/darwin-arm64': [ '0.27.1' ],
+25 silly audit   '@esbuild/darwin-x64': [ '0.27.1' ],
+25 silly audit   '@esbuild/freebsd-arm64': [ '0.27.1' ],
+25 silly audit   '@esbuild/freebsd-x64': [ '0.27.1' ],
+25 silly audit   '@esbuild/linux-arm': [ '0.27.1' ],
+25 silly audit   '@esbuild/linux-arm64': [ '0.27.1' ],
+25 silly audit   '@esbuild/linux-ia32': [ '0.27.1' ],
+25 silly audit   '@esbuild/linux-loong64': [ '0.27.1' ],
+25 silly audit   '@esbuild/linux-mips64el': [ '0.27.1' ],
+25 silly audit   '@esbuild/linux-ppc64': [ '0.27.1' ],
+25 silly audit   '@esbuild/linux-riscv64': [ '0.27.1' ],
+25 silly audit   '@esbuild/linux-s390x': [ '0.27.1' ],
+25 silly audit   '@esbuild/linux-x64': [ '0.27.1' ],
+25 silly audit   '@esbuild/netbsd-arm64': [ '0.27.1' ],
+25 silly audit   '@esbuild/netbsd-x64': [ '0.27.1' ],
+25 silly audit   '@esbuild/openbsd-arm64': [ '0.27.1' ],
+25 silly audit   '@esbuild/openbsd-x64': [ '0.27.1' ],
+25 silly audit   '@esbuild/openharmony-arm64': [ '0.27.1' ],
+25 silly audit   '@esbuild/sunos-x64': [ '0.27.1' ],
+25 silly audit   '@esbuild/win32-arm64': [ '0.27.1' ],
+25 silly audit   '@esbuild/win32-ia32': [ '0.27.1' ],
+25 silly audit   '@esbuild/win32-x64': [ '0.27.1' ],
+25 silly audit   accepts: [ '2.0.0', '1.3.8' ],
+25 silly audit   'body-parser': [ '2.2.1', '1.20.4' ],
+25 silly audit   'content-disposition': [ '1.0.1', '0.5.4' ],
+25 silly audit   'cookie-signature': [ '1.2.2', '1.0.7' ],
+25 silly audit   debug: [ '4.4.3', '2.6.9' ],
+25 silly audit   ms: [ '2.1.3', '2.0.0' ],
+25 silly audit   express: [ '5.2.1', '4.22.1' ],
+25 silly audit   finalhandler: [ '2.1.1', '1.3.2' ],
+25 silly audit   fresh: [ '2.0.0', '0.5.2' ],
+25 silly audit   'iconv-lite': [ '0.7.0', '0.4.24' ],
+25 silly audit   'media-typer': [ '1.1.0', '0.3.0' ],
+25 silly audit   'merge-descriptors': [ '2.0.0', '1.0.3' ],
+25 silly audit   'mime-db': [ '1.52.0', '1.54.0' ],
+25 silly audit   'mime-types': [ '2.1.35', '3.0.2' ],
+25 silly audit   negotiator: [ '1.0.0', '0.6.3' ],
+25 silly audit   'path-to-regexp': [ '8.3.0', '0.1.12' ],
+25 silly audit   'raw-body': [ '3.0.2', '2.5.3' ],
+25 silly audit   send: [ '1.2.0', '0.19.1', '0.19.0' ],
+25 silly audit   'http-errors': [ '2.0.1', '2.0.0' ],
+25 silly audit   statuses: [ '2.0.2', '2.0.1' ],
+25 silly audit   'serve-static': [ '2.2.0', '1.16.2' ],
+25 silly audit   encodeurl: [ '2.0.0', '1.0.2' ],
+25 silly audit   'type-is': [ '2.0.1', '1.6.18' ],
+25 silly audit   '@fastify/busboy': [ '2.1.1' ],
+25 silly audit   '@modelcontextprotocol/sdk': [ '1.11.1' ],
+25 silly audit   '@opentelemetry/api': [ '1.9.0' ],
+25 silly audit   '@playwright/browser-chromium': [ '1.53.1' ],
+25 silly audit   '@playwright/browser-firefox': [ '1.53.1' ],
+25 silly audit   '@playwright/browser-webkit': [ '1.53.1' ],
+25 silly audit   '@playwright/test': [ '1.57.0' ],
+25 silly audit   playwright: [ '1.57.0', '1.53.1' ],
+25 silly audit   'playwright-core': [ '1.57.0', '1.53.1' ],
+25 silly audit   '@types/diff-match-patch': [ '1.0.36' ],
+25 silly audit   '@types/node': [ '18.19.130' ],
+25 silly audit   '@types/node-fetch': [ '2.6.13' ],
+25 silly audit   'abort-controller': [ '3.0.0' ],
+25 silly audit   agentkeepalive: [ '4.6.0' ],
+25 silly audit   ai: [ '4.3.19' ],
+25 silly audit   'ansi-styles': [ '4.3.0' ],
+25 silly audit   'array-flatten': [ '1.1.1' ],
+25 silly audit   asynckit: [ '0.4.0' ],
+25 silly audit   'base-64': [ '0.1.0' ],
+25 silly audit   bytes: [ '3.1.2' ],
+25 silly audit   'call-bind-apply-helpers': [ '1.0.2' ],
+25 silly audit   'call-bound': [ '1.0.4' ],
+25 silly audit   chalk: [ '4.1.2', '5.6.2' ],
+25 silly audit   charenc: [ '0.0.2' ],
+25 silly audit   'color-convert': [ '2.0.1' ],
+25 silly audit   'color-name': [ '1.1.4' ],
+25 silly audit   'combined-stream': [ '1.0.8' ],
+25 silly audit   'content-type': [ '1.0.5' ],
+25 silly audit   cookie: [ '0.7.2' ],
+25 silly audit   cors: [ '2.8.5' ],
+25 silly audit   'cross-spawn': [ '7.0.6' ],
+25 silly audit   crypt: [ '0.0.2' ],
+25 silly audit   'delayed-stream': [ '1.0.0' ],
+25 silly audit   depd: [ '2.0.0' ],
+25 silly audit   dequal: [ '2.0.3' ],
+25 silly audit   destroy: [ '1.2.0' ],
+25 silly audit   'diff-match-patch': [ '1.0.5' ],
+25 silly audit   'digest-fetch': [ '1.3.0' ],
+25 silly audit   dotenv: [ '16.6.1' ],
+25 silly audit   'dunder-proto': [ '1.0.1' ],
+25 silly audit   'ee-first': [ '1.1.1' ],
+25 silly audit   'es-define-property': [ '1.0.1' ],
+25 silly audit   'es-errors': [ '1.3.0' ],
+25 silly audit   'es-object-atoms': [ '1.1.1' ],
+25 silly audit   'es-set-tostringtag': [ '2.1.0' ],
+25 silly audit   esbuild: [ '0.27.1' ],
+25 silly audit   'escape-html': [ '1.0.3' ],
+25 silly audit   etag: [ '1.8.1' ],
+25 silly audit   'event-target-shim': [ '5.0.1' ],
+25 silly audit   eventsource: [ '3.0.7' ],
+25 silly audit   'eventsource-parser': [ '3.0.6' ],
+25 silly audit   'express-rate-limit': [ '7.5.1' ],
+25 silly audit   'form-data': [ '4.0.5' ],
+25 silly audit   'form-data-encoder': [ '1.7.2' ],
+25 silly audit   'formdata-node': [ '4.4.1' ],
+25 silly audit   'web-streams-polyfill': [ '4.0.0-beta.3', '3.3.3' ],
+25 silly audit   forwarded: [ '0.2.0' ],
+25 silly audit   fsevents: [ '2.3.2', '2.3.3' ],
+25 silly audit   'function-bind': [ '1.1.2' ],
+25 silly audit   'get-intrinsic': [ '1.3.0' ],
+25 silly audit   'get-proto': [ '1.0.1' ],
+25 silly audit   'get-tsconfig': [ '4.13.0' ],
+25 silly audit   gopd: [ '1.2.0' ],
+25 silly audit   'has-flag': [ '4.0.0' ],
+25 silly audit   'has-symbols': [ '1.1.0' ],
+25 silly audit   'has-tostringtag': [ '1.0.2' ],
+25 silly audit   hasown: [ '2.0.2' ],
+25 silly audit   'humanize-ms': [ '1.2.1' ],
+25 silly audit   inherits: [ '2.0.4' ],
+25 silly audit   'ipaddr.js': [ '1.9.1' ],
+25 silly audit   'is-buffer': [ '1.1.6' ],
+25 silly audit   'is-promise': [ '4.0.0' ],
+25 silly audit   isexe: [ '2.0.0' ],
+25 silly audit   'json-schema': [ '0.4.0' ],
+25 silly audit   jsondiffpatch: [ '0.6.0' ],
+25 silly audit   'math-intrinsics': [ '1.1.0' ],
+25 silly audit   'mcp-evals': [ '1.0.18' ],
+25 silly audit   md5: [ '2.3.0' ],
+25 silly audit   methods: [ '1.1.2' ],
+25 silly audit   mime: [ '1.6.0' ],
+25 silly audit   nanoid: [ '3.3.11' ],
+25 silly audit   'node-domexception': [ '1.0.0' ],
+25 silly audit   'node-fetch': [ '2.7.0' ],
+25 silly audit   'object-assign': [ '4.1.1' ],
+25 silly audit   'object-inspect': [ '1.13.4' ],
+25 silly audit   'on-finished': [ '2.4.1' ],
+25 silly audit   once: [ '1.4.0' ],
+25 silly audit   openai: [ '4.104.0' ],
+25 silly audit   parseurl: [ '1.3.3' ],
+25 silly audit   'path-key': [ '3.1.1' ],
+25 silly audit   'pkce-challenge': [ '5.0.1' ],
+25 silly audit   'proxy-addr': [ '2.0.7' ],
+25 silly audit   qs: [ '6.14.0' ],
+25 silly audit   'range-parser': [ '1.2.1' ],
+25 silly audit   react: [ '19.2.1' ],
+25 silly audit   'resolve-pkg-maps': [ '1.0.0' ],
+25 silly audit   router: [ '2.2.0' ],
+25 silly audit   'safe-buffer': [ '5.2.1' ],
+25 silly audit   'safer-buffer': [ '2.1.2' ],
+25 silly audit   'secure-json-parse': [ '2.7.0' ],
+25 silly audit   setprototypeof: [ '1.2.0' ],
+25 silly audit   'shebang-command': [ '2.0.0' ],
+25 silly audit   'shebang-regex': [ '3.0.0' ],
+25 silly audit   'side-channel': [ '1.1.0' ],
+25 silly audit   'side-channel-list': [ '1.0.0' ],
+25 silly audit   'side-channel-map': [ '1.0.1' ],
+25 silly audit   'side-channel-weakmap': [ '1.0.2' ],
+25 silly audit   'supports-color': [ '7.2.0' ],
+25 silly audit   swr: [ '2.3.7' ],
+25 silly audit   throttleit: [ '2.1.0' ],
+25 silly audit   toidentifier: [ '1.0.1' ],
+25 silly audit   tr46: [ '0.0.3' ],
+25 silly audit   tsx: [ '4.21.0' ],
+25 silly audit   tunnel: [ '0.0.6' ],
+25 silly audit   undici: [ '5.29.0' ],
+25 silly audit   'undici-types': [ '5.26.5' ],
+25 silly audit   unpipe: [ '1.0.0' ],
+25 silly audit   'use-sync-external-store': [ '1.6.0' ],
+25 silly audit   'utils-merge': [ '1.0.1' ],
+25 silly audit   uuid: [ '11.1.0' ],
+25 silly audit   vary: [ '1.1.2' ],
+25 silly audit   'webidl-conversions': [ '3.0.1' ],
+25 silly audit   'whatwg-url': [ '5.0.0' ],
+25 silly audit   which: [ '2.0.2' ],
+25 silly audit   wrappy: [ '1.0.2' ],
+25 silly audit   zod: [ '3.25.76' ],
+25 silly audit   'zod-to-json-schema': [ '3.25.0' ],
+25 silly audit   '@executeautomation/playwright-mcp-server': [ '1.0.11' ]
+25 silly audit }
+26 verbose reify failed optional dependency /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/win32-x64
+27 silly reify mark deleted [
+27 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/win32-x64'
+27 silly reify ]
+28 verbose reify failed optional dependency /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/win32-ia32
+29 silly reify mark deleted [
+29 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/win32-ia32'
+29 silly reify ]
+30 verbose reify failed optional dependency /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/win32-arm64
+31 silly reify mark deleted [
+31 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/win32-arm64'
+31 silly reify ]
+32 verbose reify failed optional dependency /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/sunos-x64
+33 silly reify mark deleted [
+33 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/sunos-x64'
+33 silly reify ]
+34 verbose reify failed optional dependency /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/openharmony-arm64
+35 silly reify mark deleted [
+35 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/openharmony-arm64'
+35 silly reify ]
+36 verbose reify failed optional dependency /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/openbsd-x64
+37 silly reify mark deleted [
+37 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/openbsd-x64'
+37 silly reify ]
+38 verbose reify failed optional dependency /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/openbsd-arm64
+39 silly reify mark deleted [
+39 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/openbsd-arm64'
+39 silly reify ]
+40 verbose reify failed optional dependency /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/netbsd-x64
+41 silly reify mark deleted [
+41 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/netbsd-x64'
+41 silly reify ]
+42 verbose reify failed optional dependency /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/netbsd-arm64
+43 silly reify mark deleted [
+43 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/netbsd-arm64'
+43 silly reify ]
+44 verbose reify failed optional dependency /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/linux-x64
+45 silly reify mark deleted [
+45 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/linux-x64'
+45 silly reify ]
+46 verbose reify failed optional dependency /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/linux-s390x
+47 silly reify mark deleted [
+47 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/linux-s390x'
+47 silly reify ]
+48 verbose reify failed optional dependency /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/linux-riscv64
+49 silly reify mark deleted [
+49 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/linux-riscv64'
+49 silly reify ]
+50 verbose reify failed optional dependency /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/linux-ppc64
+51 silly reify mark deleted [
+51 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/linux-ppc64'
+51 silly reify ]
+52 verbose reify failed optional dependency /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/linux-mips64el
+53 silly reify mark deleted [
+53 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/linux-mips64el'
+53 silly reify ]
+54 verbose reify failed optional dependency /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/linux-loong64
+55 silly reify mark deleted [
+55 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/linux-loong64'
+55 silly reify ]
+56 verbose reify failed optional dependency /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/linux-ia32
+57 silly reify mark deleted [
+57 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/linux-ia32'
+57 silly reify ]
+58 verbose reify failed optional dependency /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/linux-arm64
+59 silly reify mark deleted [
+59 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/linux-arm64'
+59 silly reify ]
+60 verbose reify failed optional dependency /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/linux-arm
+61 silly reify mark deleted [
+61 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/linux-arm'
+61 silly reify ]
+62 verbose reify failed optional dependency /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/freebsd-x64
+63 silly reify mark deleted [
+63 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/freebsd-x64'
+63 silly reify ]
+64 verbose reify failed optional dependency /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/freebsd-arm64
+65 silly reify mark deleted [
+65 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/freebsd-arm64'
+65 silly reify ]
+66 verbose reify failed optional dependency /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/android-x64
+67 silly reify mark deleted [
+67 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/android-x64'
+67 silly reify ]
+68 verbose reify failed optional dependency /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/android-arm64
+69 silly reify mark deleted [
+69 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/android-arm64'
+69 silly reify ]
+70 verbose reify failed optional dependency /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/android-arm
+71 silly reify mark deleted [
+71 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/android-arm'
+71 silly reify ]
+72 verbose reify failed optional dependency /Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/aix-ppc64
+73 silly reify mark deleted [
+73 silly reify   '/Users/apus/Documents/UGit/open-lovable-cn/.npm-cache/_npx/0b9ff77863cb6e9f/node_modules/@esbuild/aix-ppc64'
+73 silly reify ]
+74 http cache @executeautomation/playwright-mcp-server@https://registry.npmmirror.com/@executeautomation/playwright-mcp-server/-/playwright-mcp-server-1.0.11.tgz 1ms (cache hit)
+75 silly tarball no local data for @executeautomation/playwright-mcp-server@https://registry.npmmirror.com/@executeautomation/playwright-mcp-server/-/playwright-mcp-server-1.0.11.tgz. Extracting by manifest.
+76 http fetch POST 404 https://registry.npmmirror.com/-/npm/v1/security/advisories/bulk 54ms
+77 silly audit bulk request failed [object Object]
+78 http fetch POST 404 https://registry.npmmirror.com/-/npm/v1/security/audits/quick 46ms
+79 verbose audit error HttpErrorGeneral: 404 Not Found - POST https://registry.npmmirror.com/-/npm/v1/security/audits/quick - [NOT_IMPLEMENTED] /-/npm/v1/security/* not implemented yet
+79 verbose audit error     at /usr/local/lib/node_modules/npm/node_modules/npm-registry-fetch/lib/check-response.js:103:15
+79 verbose audit error     at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+79 verbose audit error     at async [getReport] (/usr/local/lib/node_modules/npm/node_modules/@npmcli/arborist/lib/audit-report.js:336:21)
+79 verbose audit error     at async AuditReport.run (/usr/local/lib/node_modules/npm/node_modules/@npmcli/arborist/lib/audit-report.js:106:19) {
+79 verbose audit error   headers: [Object: null prototype] {
+79 verbose audit error     server: [ 'Tengine' ],
+79 verbose audit error     date: [ 'Thu, 11 Dec 2025 14:34:27 GMT' ],
+79 verbose audit error     'content-type': [ 'application/json' ],
+79 verbose audit error     'transfer-encoding': [ 'chunked' ],
+79 verbose audit error     connection: [ 'keep-alive' ],
+79 verbose audit error     'strict-transport-security': [ 'max-age=5184000' ],
+79 verbose audit error     via: [ 'kunlun1.cn8094[,404666]' ],
+79 verbose audit error     'timing-allow-origin': [ '*' ],
+79 verbose audit error     eagleid: [ '78dc519517654636677404216e' ],
+79 verbose audit error     'x-fetch-attempts': [ '1' ]
+79 verbose audit error   },
+79 verbose audit error   statusCode: 404,
+79 verbose audit error   code: 'E404',
+79 verbose audit error   method: 'POST',
+79 verbose audit error   uri: 'https://registry.npmmirror.com/-/npm/v1/security/audits/quick',
+79 verbose audit error   body: {
+79 verbose audit error     error: '[NOT_IMPLEMENTED] /-/npm/v1/security/* not implemented yet'
+79 verbose audit error   },
+79 verbose audit error   pkgid: undefined
+79 verbose audit error }
+80 silly audit error [object Object]
+81 silly audit report null
+82 http fetch GET 200 https://cdn.npmmirror.com/packages/%40executeautomation/playwright-mcp-server/1.0.11/playwright-mcp-server-1.0.11.tgz 483ms (cache miss)
+83 verbose cwd /Users/apus/Documents/UGit/Ingenio
+84 verbose os Darwin 25.0.0
+85 verbose node v22.17.0
+86 verbose npm  v10.9.2
+87 verbose exit 0
+88 info ok
