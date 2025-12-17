@@ -27,6 +27,13 @@ import {
   assembleGeneratedCode,
   type ValidationIssue
 } from '@/lib/multi-turn-fix-engine';
+// 🔥 V3.0 分段生成策略 - 解决token超限和代码混乱
+import type {
+  GenerationConfig,
+  FileManifestItem,
+  GenerationRequest,
+  PlanGenerationResponse
+} from '@/types/generation';
 
 // Force dynamic route to enable streaming
 export const dynamic = 'force-dynamic';
@@ -56,26 +63,77 @@ const googleGenerativeAI = createGoogleGenerativeAI({
   baseURL: isUsingAIGateway ? aiGatewayBaseURL : undefined,
 });
 
+const DEFAULT_GEMINI_GCA_ENDPOINT = 'https://cs.imds.ai/api/v1';
+
+/**
+ * 规范化 Gemini GCA 的 OpenAI 兼容 endpoint。
+ *
+ * 常见误配：
+ * - https://cs.imds.ai/gemini（应为 /api/v1）
+ * - https://cs.imds.ai（应补全 /api/v1）
+ */
+function normalizeGeminiGCAEndpoint(rawEndpoint: string | undefined): string {
+  if (!rawEndpoint) return DEFAULT_GEMINI_GCA_ENDPOINT;
+
+  const trimmed = rawEndpoint.trim().replace(/\/+$/, '');
+  if (!trimmed) return DEFAULT_GEMINI_GCA_ENDPOINT;
+
+  if (trimmed.endsWith('/gemini')) {
+    console.warn('[Gemini GCA] CODE_ASSIST_ENDPOINT 检测到 /gemini，已自动纠正为 /api/v1');
+    return trimmed.replace(/\/gemini$/, '/api/v1');
+  }
+
+  if (trimmed === 'https://cs.imds.ai') {
+    return DEFAULT_GEMINI_GCA_ENDPOINT;
+  }
+
+  return trimmed;
+}
+
+/**
+ * 读取正整数环境变量；非法值回退到默认值。
+ */
+function getEnvPositiveInt(name: string, defaultValue: number): number {
+  const raw = process.env[name];
+  if (!raw) return defaultValue;
+
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) return defaultValue;
+
+  return Math.floor(parsed);
+}
+
+/**
+ * Gemini GCA 默认模型（用于未显式传 model 时的兜底，以及自动降级场景）。
+ */
+function resolveGeminiGCADefaultModel(): string {
+  const model = process.env.GEMINI_MODEL;
+  if (model && model.trim()) return model.trim();
+  return 'gemini-3-pro-preview';
+}
+
 // Gemini GCA Provider (Google Cloud AI - OpenAI Compatible)
 // 使用 cs.imds.ai 或其他 OpenAI 兼容的 Gemini 代理服务
 // 正确的 endpoint: https://cs.imds.ai/api/v1 (不是 /gemini)
 const isUsingGeminiGCA = !!process.env.CODE_ASSIST_ENDPOINT && !!process.env.GOOGLE_CLOUD_ACCESS_TOKEN;
+const geminiGCAEndpoint = normalizeGeminiGCAEndpoint(process.env.CODE_ASSIST_ENDPOINT);
 
 console.log('[DEBUG] Gemini GCA Setup:', {
-  envEndpoint: process.env.CODE_ASSIST_ENDPOINT,
+  endpoint: geminiGCAEndpoint,
   hasToken: !!process.env.GOOGLE_CLOUD_ACCESS_TOKEN
 });
 
 const geminiGCAProvider = createOpenAICompatible({
   name: 'gemini-gca',
   apiKey: process.env.GOOGLE_CLOUD_ACCESS_TOKEN || '',
-  baseURL: 'https://cs.imds.ai/api/v1',
+  baseURL: geminiGCAEndpoint,
   fetch: geminiFetch,
 });
 
 console.log('[generate-ai-code-stream] Gemini GCA config:', {
   isUsingGeminiGCA,
-  endpoint: process.env.CODE_ASSIST_ENDPOINT ? 'configured' : 'not set',
+  endpoint: process.env.CODE_ASSIST_ENDPOINT ? geminiGCAEndpoint : 'not set',
+  defaultModel: resolveGeminiGCADefaultModel(),
 });
 
 // 七牛云AI / DashScope (阿里云通义千问) - 使用OpenAI Compatible Provider
@@ -140,11 +198,25 @@ declare global {
 
 export async function POST(request: NextRequest) {
   try {
-    const { prompt, model = 'deepseek-v3', context, isEdit = false } = await request.json();
-    
+    const requestBody = await request.json() as GenerationRequest;
+    const {
+      prompt,
+      model: rawModel,
+      context,
+      isEdit = false,
+      generation = { mode: 'full' } // 🔥 默认使用 full 模式保持向后兼容
+    } = requestBody;
+
+    let model = typeof rawModel === 'string' ? rawModel.trim() : '';
+    if (!model) {
+      model = isUsingGeminiGCA ? resolveGeminiGCADefaultModel() : 'deepseek-r1';
+    }
+
     console.log('[generate-ai-code-stream] Received request:');
     console.log('[generate-ai-code-stream] - prompt:', prompt);
     console.log('[generate-ai-code-stream] - isEdit:', isEdit);
+    console.log('[generate-ai-code-stream] - generation.mode:', generation.mode);
+    console.log('[generate-ai-code-stream] - generation.fileIndex:', generation.fileIndex);
     console.log('[generate-ai-code-stream] - context.sandboxId:', context?.sandboxId);
     console.log('[generate-ai-code-stream] - context.currentFiles:', context?.currentFiles ? Object.keys(context.currentFiles) : 'none');
     console.log('[generate-ai-code-stream] - currentFiles count:', context?.currentFiles ? Object.keys(context.currentFiles).length : 0);
@@ -1190,12 +1262,13 @@ MORPH FAST APPLY MODE (EDIT-ONLY):
         }
         
         await sendProgress({ type: 'status', message: 'Planning application structure...' });
-        
+
         console.log('\n[generate-ai-code-stream] Starting streaming response...\n');
-        
+        console.log(`[generate-ai-code-stream] Generation mode: ${generation.mode}`);
+
         // Track packages that need to be installed
         const packagesToInstall: string[] = [];
-        
+
         // Determine which provider to use based on model
         const isAnthropic = model.startsWith('anthropic/');
         const isGoogle = model.startsWith('google/');
@@ -1253,12 +1326,162 @@ MORPH FAST APPLY MODE (EDIT-ONLY):
         console.log(`[generate-ai-code-stream] AI Gateway enabled: ${isUsingAIGateway}`);
         console.log(`[generate-ai-code-stream] Model string: ${model}`);
 
+        // =================================================================
+        // 🔥 V3.0 Generation Mode Routing (分段生成策略路由)
+        // =================================================================
+
+        // Mode: plan - 生成技术方案（第一步：需求 → 方案）
+        if (generation.mode === 'plan') {
+          console.log('[generate-ai-code-stream] Mode: plan - 生成技术方案');
+          await sendProgress({ type: 'status', message: '正在分析需求并制定技术方案...' });
+
+          try {
+            const plan = await generatePlan(
+              fullPrompt,
+              context,
+              model,
+              modelProvider,
+              actualModel,
+              sendProgress
+            );
+
+            console.log(`[generate-ai-code-stream] 技术方案生成完成，建议生成 ${plan.suggestedManifest.length} 个文件`);
+
+            // ✅ Plan 模式使用 SSE streaming，所有数据已通过 sendProgress 发送
+            // 不返回 JSON，而是退出当前函数，让 finally 块关闭 stream
+            console.log('[generate-ai-code-stream] Plan 模式完成，stream 将自然关闭');
+            return; // 退出异步 IIFE，触发 finally 块
+
+          } catch (error) {
+            console.error('[generate-ai-code-stream] Plan generation failed:', error);
+            await sendProgress({
+              type: 'error',
+              error: `技术方案生成失败: ${(error as Error).message}`
+            });
+            throw error;
+          }
+        }
+
+        // Mode: manifest - 只生成文件清单
+        if (generation.mode === 'manifest') {
+          console.log('[generate-ai-code-stream] Mode: manifest - 生成文件清单');
+          await sendProgress({ type: 'status', message: '正在分析需求并规划文件结构...' });
+
+          try {
+            const manifest = await generateManifest(
+              fullPrompt,
+              context,
+              model,
+              modelProvider,
+              actualModel
+            );
+
+            await sendProgress({
+              type: 'manifest_complete',
+              manifest,
+              totalFiles: manifest.length
+            });
+
+            console.log(`[generate-ai-code-stream] Manifest 生成完成，共 ${manifest.length} 个文件`);
+
+            return NextResponse.json({
+              success: true,
+              mode: 'manifest',
+              manifest,
+              totalFiles: manifest.length,
+              estimatedTime: manifest.reduce((sum, f) => sum + (f.estimatedLines || 50), 0) / 20 // 预估每20行1秒
+            });
+
+          } catch (error) {
+            console.error('[generate-ai-code-stream] Manifest generation failed:', error);
+            await sendProgress({
+              type: 'error',
+              error: `文件清单生成失败: ${(error as Error).message}`
+            });
+            throw error;
+          }
+        }
+
+        // Mode: file - 生成单个文件
+        if (generation.mode === 'file') {
+          console.log('[generate-ai-code-stream] Mode: file - 生成单个文件');
+
+          if (!generation.manifest || !Array.isArray(generation.manifest)) {
+            throw new Error('Mode "file" requires a valid manifest array');
+          }
+
+          if (generation.fileIndex === undefined || generation.fileIndex < 0) {
+            throw new Error('Mode "file" requires a valid fileIndex');
+          }
+
+          if (generation.fileIndex >= generation.manifest.length) {
+            throw new Error(`fileIndex ${generation.fileIndex} out of bounds (manifest has ${generation.manifest.length} files)`);
+          }
+
+          const manifestItem = generation.manifest[generation.fileIndex];
+          const totalFiles = generation.manifest.length;
+          const progress = Math.round(((generation.fileIndex + 1) / totalFiles) * 100);
+
+          console.log(`[generate-ai-code-stream] 生成文件 ${generation.fileIndex + 1}/${totalFiles}: ${manifestItem.path}`);
+          await sendProgress({
+            type: 'status',
+            message: `正在生成文件 ${generation.fileIndex + 1}/${totalFiles}: ${manifestItem.path}...`
+          });
+
+          try {
+            const fileResult = await generateSingleFile(
+              manifestItem,
+              generation.manifest,
+              fullPrompt,
+              context,
+              model,
+              modelProvider,
+              actualModel,
+              systemPrompt
+            );
+
+            const isComplete = generation.fileIndex === totalFiles - 1;
+
+            await sendProgress({
+              type: 'file_complete',
+              fileIndex: generation.fileIndex,
+              totalFiles,
+              file: fileResult,
+              progress,
+              isComplete
+            });
+
+            console.log(`[generate-ai-code-stream] 文件生成完成: ${fileResult.path} (${fileResult.content.length} 字符)`);
+
+            return NextResponse.json({
+              success: true,
+              mode: 'file',
+              fileIndex: generation.fileIndex,
+              totalFiles,
+              file: fileResult,
+              progress,
+              isComplete
+            });
+
+          } catch (error) {
+            console.error(`[generate-ai-code-stream] File generation failed for ${manifestItem.path}:`, error);
+            await sendProgress({
+              type: 'error',
+              error: `文件生成失败 (${manifestItem.path}): ${(error as Error).message}`
+            });
+            throw error;
+          }
+        }
+
+        // Mode: full - 原有的一次性生成所有文件逻辑（向后兼容）
+        console.log('[generate-ai-code-stream] Mode: full - 一次性生成所有文件');
+
         // Make streaming API call with appropriate provider
         const streamOptions: any = {
           model: modelProvider(actualModel),
           messages: [
-            { 
-              role: 'system', 
+            {
+              role: 'system',
               content: systemPrompt + `
 
 🚨 CRITICAL CODE GENERATION RULES - VIOLATION = FAILURE 🚨:
@@ -1268,6 +1491,35 @@ MORPH FAST APPLY MODE (EDIT-ONLY):
 4. NEVER leave incomplete class names or attributes
 5. ALWAYS close ALL tags, quotes, brackets, and parentheses
 6. If you run out of space, prioritize completing the current file
+
+📦 FILE STRUCTURE RULES (CRITICAL FOR AVOIDING SYNTAX ERRORS):
+1. ALL import statements MUST be at the TOP of the file, BEFORE any code
+2. NEVER add import statements in the middle of functions or components
+3. File structure MUST be: imports → type definitions → component → export
+
+CORRECT FILE STRUCTURE:
+\`\`\`jsx
+import React, { useState } from 'react';      // ← ALL imports FIRST
+import { Icon } from 'lucide-react';          // ← More imports
+
+export default function Component() {          // ← Then component
+  const [state, setState] = useState('');
+
+  return (
+    <div>
+      <Icon />                                 // ← Use imported components
+    </div>
+  );
+}
+\`\`\`
+
+WRONG FILE STRUCTURE (CAUSES SYNTAX ERRORS):
+\`\`\`jsx
+export default function Component() {
+  import { Icon } from 'lucide-react';         // ❌ NEVER import inside function!
+  return <Icon />;
+}
+\`\`\`
 
 CRITICAL STRING RULES TO PREVENT SYNTAX ERRORS:
 - NEVER write: className="px-8 py-4 bg-black text-white font-bold neobrut-border neobr...
@@ -1286,12 +1538,14 @@ Examples of SYNTAX ERRORS (NEVER DO THIS):
 ❌ <button className="btn btn-primary btn-...
 ❌ const title = "Welcome to our...
 ❌ import { useState, useEffect, ... } from 'react'
+❌ Putting import statements inside function bodies
 
 Examples of CORRECT CODE (ALWAYS DO THIS):
 ✅ className="px-4 py-2 bg-blue-600 hover:bg-blue-700"
 ✅ <button className="btn btn-primary btn-large">
 ✅ const title = "Welcome to our application"
 ✅ import { useState, useEffect, useCallback } from 'react'
+✅ All imports at the top of the file
 
 // Set maximum execution time to 5 minutes
 export const maxDuration = 300;
@@ -1360,6 +1614,15 @@ It's better to have 3 complete files than 10 incomplete files.`
           let result;
           let retryCount = 0;
           const maxRetries = 2;
+          let fallbackToGeminiUsed = false;
+
+          // 流式生成超时控制：
+          // - 首 token 超时：避免上游“无输出”导致前端一直卡住
+          // - 空闲超时：防止中途长时间无 chunk
+          // - 总超时：兜底，避免无限挂起
+          const streamFirstTokenTimeoutMs = getEnvPositiveInt('AI_STREAM_FIRST_TOKEN_TIMEOUT_MS', 25_000);
+          const streamIdleTimeoutMs = getEnvPositiveInt('AI_STREAM_IDLE_TIMEOUT_MS', 60_000);
+          const streamTotalTimeoutMs = getEnvPositiveInt('AI_STREAM_TOTAL_TIMEOUT_MS', 240_000);
           
           // Update prompt for continuation if needed
           let currentMessages = [...streamOptions.messages];
@@ -1390,6 +1653,17 @@ It's better to have 3 complete files than 10 incomplete files.`
                missingFilesReminder += '\n⚠️ WARNING: You have NOT yet generated index.css! You should generate it for styling.';
              }
 
+             // 🔥 分析截断点上下文，帮助 AI 更准确地继续
+             const lastFileMatch = generatedCode.match(/<file path="([^"]+)">[^]*$/);
+             const isInMiddleOfFile = lastFileMatch && !generatedCode.endsWith('</file>');
+             const currentFileName = lastFileMatch ? lastFileMatch[1] : 'unknown';
+
+             // 获取最后 200 个字符作为上下文提示
+             const lastContext = generatedCode.slice(-200);
+             const contextHint = isInMiddleOfFile
+               ? `\n📍 Truncation Context (last 200 chars):\n\`\`\`\n${lastContext}\n\`\`\`\n`
+               : '';
+
              currentMessages = [
                ...streamOptions.messages,
                {
@@ -1402,69 +1676,154 @@ It's better to have 3 complete files than 10 incomplete files.`
 
 📊 Progress Summary:
 - Generated ${generatedFiles.length} files so far: ${generatedFiles.slice(0, 5).join(', ')}${generatedFiles.length > 5 ? '...' : ''}
+- Currently ${isInMiddleOfFile ? `IN THE MIDDLE of file: ${currentFileName}` : 'between files'}
 ${missingFilesReminder}
-
-RULES:
+${contextHint}
+🚨 CRITICAL RULES - MUST FOLLOW:
 1. Do NOT repeat code that was already generated
-2. Continue from the exact point where you stopped
-3. If you were in the middle of a file, complete that file first
-4. Then generate any missing required files (especially App.jsx/App.tsx if missing)
-5. Start immediately with the next character - no explanations needed]`
+2. Continue from the EXACT character where you stopped - look at the context above
+3. If you were in the middle of a file, complete that file first with proper syntax
+4. 🚫 NEVER insert import statements in the middle of code - imports MUST be at the top of files
+5. 🚫 If you realize an import is missing, DO NOT add it inline - finish the current file first, then generate a <fix-imports> block after </file>
+6. Start immediately with the next character - no explanations needed
+7. DO NOT use <thinking> tags in this continuation - output CODE ONLY
+
+⚠️ IMPORT RULE: If you need to add missing imports, use this format AFTER closing the current file:
+</file>
+<fix-imports file="path/to/file.jsx">
+import { MissingComponent } from 'source';
+</fix-imports>
+
+This ensures imports are properly placed at the top of the file during post-processing.]`
                }
              ];
              // Update options with new messages
              streamOptions.messages = currentMessages;
           }
 
-          while (retryCount <= maxRetries) {
+                    while (retryCount <= maxRetries) {
+            // Setup AbortController for this attempt
+            const controller = new AbortController();
+            const signal = controller.signal;
+            const firstTokenTimer = setTimeout(() => {
+              controller.abort('AI_STREAM_FIRST_TOKEN_TIMEOUT');
+            }, streamFirstTokenTimeoutMs);
+
             try {
-              result = await streamText(streamOptions);
+              // Wrap streamText with explicit timeout signal
+              console.log(`[generate-ai-code-stream] streamText attempt ${retryCount + 1}/${maxRetries + 1} (timeout: ${streamFirstTokenTimeoutMs}ms)...`);
+              const currentStreamOptions = {
+                ...streamOptions,
+                abortSignal: signal,
+              };
+
+              // Race streamText against our timer
+              result = await streamText(currentStreamOptions);
+              
+              // Clear connection timer as we have established connection
+              clearTimeout(firstTokenTimer);
+
+              // 🟢 Optimization: Wrap textStream to detect IDLE timeouts during generation
+              if (result && result.textStream) {
+                  const originalStream = result.textStream;
+                  const wrappedStream = (async function* () {
+                      let idleTimer = setTimeout(() => {
+                          controller.abort('AI_STREAM_IDLE_TIMEOUT');
+                      }, streamIdleTimeoutMs);
+                      
+                      const totalTimer = setTimeout(() => {
+                          controller.abort('AI_STREAM_TOTAL_TIMEOUT');
+                      }, streamTotalTimeoutMs);
+
+                      try {
+                          for await (const chunk of originalStream) {
+                              clearTimeout(idleTimer);
+                              yield chunk;
+                              idleTimer = setTimeout(() => {
+                                  controller.abort('AI_STREAM_IDLE_TIMEOUT');
+                              }, streamIdleTimeoutMs);
+                          }
+                      } catch (err: any) {
+                          if (signal.aborted) {
+                              if (signal.reason === 'AI_STREAM_IDLE_TIMEOUT') throw new Error(`Stream idle timeout (${streamIdleTimeoutMs}ms)`);
+                              if (signal.reason === 'AI_STREAM_TOTAL_TIMEOUT') throw new Error(`Stream total timeout (${streamTotalTimeoutMs}ms)`);
+                          }
+                          throw err;
+                      } finally {
+                          clearTimeout(idleTimer);
+                          clearTimeout(totalTimer);
+                      }
+                  })();
+                  
+                  result = { ...result, textStream: wrappedStream };
+              }
+
               break; // Success, exit retry loop
             } catch (streamError: any) {
+              clearTimeout(firstTokenTimer);
+              
+              // Standardize timeout error message
+              if (signal.aborted && signal.reason === 'AI_STREAM_FIRST_TOKEN_TIMEOUT') {
+                  streamError = new Error(`Connection/First-token timeout (${streamFirstTokenTimeoutMs}ms)`);
+              }
+
               console.error(`[generate-ai-code-stream] Error calling streamText (attempt ${retryCount + 1}/${maxRetries + 1}):`, streamError);
               
-              // Check if this is a Groq service unavailable error
               const isGroqServiceError = isKimiGroq && streamError.message?.includes('Service unavailable');
+              const isTimeout = streamError.message?.includes('timeout') || streamError.message?.includes('Timeout');
               const isRetryableError = streamError.message?.includes('Service unavailable') || 
                                       streamError.message?.includes('rate limit') ||
-                                      streamError.message?.includes('timeout');
+                                      isTimeout;
               
-              if (retryCount < maxRetries && isRetryableError) {
+              // 🔄 Intelligent Fallback to Gemini GCA
+              const canFallbackToGemini = isRetryableError && 
+                                          isUsingGeminiGCA && 
+                                          !isGeminiGCA && 
+                                          !fallbackToGeminiUsed;
+
+              if ((retryCount < maxRetries && isRetryableError) || canFallbackToGemini) {
                 retryCount++;
-                console.log(`[generate-ai-code-stream] Retrying in ${retryCount * 2} seconds...`);
                 
-                // Send progress update about retry
-                await sendProgress({ 
-                  type: 'info', 
-                  message: `Service temporarily unavailable, retrying (attempt ${retryCount + 1}/${maxRetries + 1})...` 
-                });
-                
-                // Wait before retry with exponential backoff
-                await new Promise(resolve => setTimeout(resolve, retryCount * 2000));
-                
-                // If Groq fails, try switching to a fallback model
-                if (isGroqServiceError && retryCount === maxRetries) {
+                if (canFallbackToGemini) {
+                    console.log('[generate-ai-code-stream] ⚠️ Primary provider failed/timed out. Switching to Gemini GCA fallback...');
+                    const fallbackModel = resolveGeminiGCADefaultModel();
+                    streamOptions.model = geminiGCAProvider(fallbackModel);
+                    actualModel = fallbackModel;
+                    fallbackToGeminiUsed = true;
+                    // Reset retry count to allow attempt with new model
+                    if (retryCount > maxRetries) retryCount = maxRetries; 
+                    
+                     await sendProgress({ 
+                      type: 'info', 
+                      message: `Primary model timed out/failed. Switching to Gemini GCA (${fallbackModel})...` 
+                    });
+                } else {
+                    console.log(`[generate-ai-code-stream] Retrying in ${retryCount * 2} seconds...`);
+                    await sendProgress({ 
+                      type: 'info', 
+                      message: `Service temporarily unavailable or timed out, retrying (attempt ${retryCount + 1}/${maxRetries + 1})...` 
+                    });
+                    await new Promise(resolve => setTimeout(resolve, retryCount * 2000));
+                }
+
+                // If Groq fails, try switching to a fallback model (Old logic)
+                if (isGroqServiceError && retryCount === maxRetries && !fallbackToGeminiUsed) {
                   console.log('[generate-ai-code-stream] Groq service unavailable, falling back to GPT-4');
                   streamOptions.model = openai('gpt-4-turbo');
                   actualModel = 'gpt-4-turbo';
                 }
               } else {
                 // Final error, send to user
+                const errorMsg = streamError.message || 'Unknown error';
                 await sendProgress({ 
                   type: 'error', 
-                  message: `Failed to initialize ${isGeminiGCA ? 'Gemini GCA' : isGoogle ? 'Gemini' : isAnthropic ? 'Claude' : isOpenAI ? 'GPT-5' : isKimiGroq ? 'Kimi (Groq)' : 'Groq'} streaming: ${streamError.message}` 
+                  message: `Failed to initialize ${isGeminiGCA ? 'Gemini GCA' : isGoogle ? 'Gemini' : isAnthropic ? 'Claude' : isOpenAI ? 'GPT-5' : isKimiGroq ? 'Kimi (Groq)' : 'Groq'} streaming: ${errorMsg}` 
                 });
                 
-                // If this is a Google/Gemini model error, provide helpful info
-                if (isGeminiGCA) {
+                if (isGeminiGCA || fallbackToGeminiUsed) {
                   await sendProgress({
                     type: 'info',
-                    message: 'Tip: Make sure CODE_ASSIST_ENDPOINT and GOOGLE_CLOUD_ACCESS_TOKEN are set correctly.'
-                  });
-                } else if (isGoogle) {
-                  await sendProgress({
-                    type: 'info',
-                    message: 'Tip: Make sure your GEMINI_API_KEY is set correctly and has proper permissions.'
+                    message: 'Tip: Check CODE_ASSIST_ENDPOINT and GOOGLE_CLOUD_ACCESS_TOKEN.'
                   });
                 }
                 
@@ -1635,6 +1994,47 @@ RULES:
                 console.warn('[generate-ai-code-stream] 🚨 Quick check: Code ends with truncation indicator');
               }
             }
+
+            // 🔥 Check 4: JSX 内部截断检测（检测未闭合的 JSX 标签）
+            if (!quickTruncationDetected && fileOpenCount > 0) {
+              // 获取最后一个文件的内容
+              const lastFileMatch = generatedCode.match(/<file path="[^"]+">([^]*?)(?:<\/file>|$)/g);
+              if (lastFileMatch) {
+                const lastFileContent = lastFileMatch[lastFileMatch.length - 1];
+
+                // 检测未闭合的 JSX 标签（大写开头的标签）
+                const jsxOpenTags = (lastFileContent.match(/<[A-Z][a-zA-Z0-9]*(?:\s|>)/g) || []).length;
+                const jsxCloseTags = (lastFileContent.match(/<\/[A-Z][a-zA-Z0-9]*>/g) || []).length;
+                const jsxSelfClosing = (lastFileContent.match(/<[A-Z][a-zA-Z0-9]*[^>]*\/>/g) || []).length;
+
+                if (jsxOpenTags > jsxCloseTags + jsxSelfClosing + 1) {
+                  quickTruncationDetected = true;
+                  console.warn(`[generate-ai-code-stream] 🚨 Quick check: Unclosed JSX tags (${jsxOpenTags} open, ${jsxCloseTags} closed, ${jsxSelfClosing} self-closing)`);
+                }
+
+                // 检测 className 属性未闭合
+                const lastLine = lastFileContent.split('\n').pop() || '';
+                if (lastLine.includes('className="') && !lastLine.includes('">') && !lastLine.includes('"/>')) {
+                  quickTruncationDetected = true;
+                  console.warn('[generate-ai-code-stream] 🚨 Quick check: Unclosed className attribute');
+                }
+              }
+            }
+
+            // 🔥 Check 5: 检测代码结构异常（函数定义在 JSX 内部等）
+            if (!quickTruncationDetected && fileOpenCount > 0) {
+              const lastFileMatch = generatedCode.match(/<file path="[^"]+">([^]*?)(?:<\/file>|$)/g);
+              if (lastFileMatch) {
+                const lastFileContent = lastFileMatch[lastFileMatch.length - 1];
+
+                // 检测多个 export default（代码混入的标志）
+                const exportDefaultCount = (lastFileContent.match(/export\s+default\s+(function|class|const)/g) || []).length;
+                if (exportDefaultCount > 1) {
+                  quickTruncationDetected = true;
+                  console.warn(`[generate-ai-code-stream] 🚨 Quick check: Multiple export default detected (${exportDefaultCount}) - possible code mixup`);
+                }
+              }
+            }
           }
 
           // Decide on continuation: either by finishReason OR by truncation detection
@@ -1721,7 +2121,12 @@ RULES:
         
         while ((match = fileRegex.exec(generatedCode)) !== null) {
           const filePath = match[1];
-          const content = match[2].trim();
+          let content = match[2].trim();
+          
+          // Clean up any <thinking> tags that might have leaked into the file content
+          // This happens especially during continuation when the model restarts thinking
+          content = content.replace(/<thinking>[\s\S]*?<\/thinking>/g, '').trim();
+
           files.push({ path: filePath, content });
           
           // Extract packages from file content - ONLY for edits
@@ -2152,7 +2557,67 @@ Provide the complete file content without any truncation. Include all necessary 
             });
           }
         }
-        
+
+        // ===========================
+        // 处理 <fix-imports> 标签（续写时AI补充的import）
+        // ===========================
+        const fixImportsRegex = /<fix-imports\s+file="([^"]+)">([\s\S]*?)<\/fix-imports>/g;
+        let fixImportMatch;
+        const importFixes: Map<string, string[]> = new Map();
+
+        while ((fixImportMatch = fixImportsRegex.exec(generatedCode)) !== null) {
+          const targetFile = fixImportMatch[1];
+          const importsToAdd = fixImportMatch[2].trim().split('\n').filter(line => line.trim());
+
+          if (!importFixes.has(targetFile)) {
+            importFixes.set(targetFile, []);
+          }
+          importFixes.get(targetFile)!.push(...importsToAdd);
+          console.log(`[generate-ai-code-stream] 📦 Found fix-imports for ${targetFile}: ${importsToAdd.length} imports`);
+        }
+
+        // 从生成代码中移除 <fix-imports> 标签
+        generatedCode = generatedCode.replace(fixImportsRegex, '');
+
+        // 将补充的 import 应用到对应文件
+        if (importFixes.size > 0) {
+          const fileRegex = /<file path="([^"]+)">([\s\S]*?)<\/file>/g;
+          generatedCode = generatedCode.replace(fileRegex, (match, filePath, content) => {
+            const additionalImports = importFixes.get(filePath);
+            if (additionalImports && additionalImports.length > 0) {
+              // 找到第一个非注释、非空行的位置，在其前面插入 imports
+              const lines = content.split('\n');
+              let insertIndex = 0;
+
+              // 跳过已有的 import 语句
+              for (let i = 0; i < lines.length; i++) {
+                const trimmed = lines[i].trim();
+                if (trimmed.startsWith('import ')) {
+                  insertIndex = i + 1;
+                } else if (trimmed && !trimmed.startsWith('//') && !trimmed.startsWith('/*')) {
+                  break;
+                }
+              }
+
+              // 去重：只添加不存在的 import
+              const existingImports = content.match(/import\s+.*\s+from\s+['"][^'"]+['"]/g) || [];
+              const newImports = additionalImports.filter(imp => {
+                const normalizedNew = imp.replace(/;$/, '').trim();
+                return !existingImports.some((existing: string) =>
+                  existing.replace(/;$/, '').trim() === normalizedNew
+                );
+              });
+
+              if (newImports.length > 0) {
+                lines.splice(insertIndex, 0, ...newImports.map(imp => imp.endsWith(';') ? imp : imp + ';'));
+                console.log(`[generate-ai-code-stream] ✅ Added ${newImports.length} imports to ${filePath}`);
+                return `<file path="${filePath}">${lines.join('\n')}</file>`;
+              }
+            }
+            return match;
+          });
+        }
+
         // ===========================
         // 生成阶段依赖自检与自动补全（更彻底的闭环）
         // ===========================
@@ -2289,9 +2754,462 @@ Provide the complete file content without any truncation. Include all necessary 
     
   } catch (error) {
     console.error('[generate-ai-code-stream] Error:', error);
-    return NextResponse.json({ 
-      success: false, 
-      error: (error as Error).message 
+    return NextResponse.json({
+      success: false,
+      error: (error as Error).message
     }, { status: 500 });
   }
+}
+
+// =============================================================================
+// 🔥 V3.0 分段生成策略辅助函数
+// =============================================================================
+
+/**
+ * 生成文件清单 (Manifest Generation)
+ * 目的：先让AI规划需要创建哪些文件，避免一次性生成导致token超限
+ */
+async function generateManifest(
+  prompt: string,
+  context: any,
+  model: string,
+  modelProvider: any,
+  actualModel: string
+): Promise<FileManifestItem[]> {
+  console.log('[generateManifest] 开始生成文件清单...');
+
+  const manifestPrompt = `
+分析以下需求，生成需要创建的文件清单（仅列出文件，不生成代码）。
+
+用户需求：
+${prompt}
+
+${context?.currentFiles ? `
+现有文件：
+${Object.keys(context.currentFiles).map(f => `- ${f}`).join('\n')}
+` : ''}
+
+请以 JSON 格式输出文件清单，格式如下：
+\`\`\`json
+{
+  "files": [
+    {
+      "path": "src/App.jsx",
+      "description": "应用主入口，配置路由和全局状态",
+      "type": "page",
+      "dependencies": ["src/components/Header.jsx", "src/pages/Home.jsx"],
+      "isCritical": true,
+      "estimatedLines": 50
+    },
+    {
+      "path": "src/components/Header.jsx",
+      "description": "页头组件，包含导航和Logo",
+      "type": "component",
+      "dependencies": [],
+      "isCritical": false,
+      "estimatedLines": 30
+    }
+  ]
+}
+\`\`\`
+
+🎯 注意事项：
+1. path 必须是完整的相对路径（从项目根目录开始）
+2. type 必须是：component | page | api | lib | config | style | other
+3. dependencies 列出直接依赖的文件路径
+4. isCritical 标记是否为核心功能文件
+5. estimatedLines 预估代码行数（可选）
+6. 按依赖关系排序：被依赖的文件排在前面
+
+只输出 JSON，不要其他解释。`;
+
+  try {
+    const result = await streamText({
+      model: modelProvider(actualModel),
+      messages: [
+        {
+          role: 'system',
+          content: '你是一个专业的前端架构师，擅长分析需求并规划项目文件结构。'
+        },
+        {
+          role: 'user',
+          content: manifestPrompt
+        }
+      ],
+      temperature: 0.3, // 降低温度以获得更稳定的输出
+    });
+
+    let manifestText = '';
+    for await (const chunk of result.textStream) {
+      manifestText += chunk;
+    }
+
+    console.log('[generateManifest] AI 输出:', manifestText);
+
+    // 提取 JSON（可能包裹在```json...```中）
+    const jsonMatch = manifestText.match(/```json\s*([\s\S]*?)\s*```/) ||
+                     manifestText.match(/```\s*([\s\S]*?)\s*```/) ||
+                     [null, manifestText];
+
+    const jsonStr = jsonMatch[1] || manifestText;
+    const parsed = JSON.parse(jsonStr.trim());
+
+    if (!parsed.files || !Array.isArray(parsed.files)) {
+      throw new Error('Invalid manifest format: missing "files" array');
+    }
+
+    console.log(`[generateManifest] 成功生成 ${parsed.files.length} 个文件的清单`);
+    return parsed.files as FileManifestItem[];
+
+  } catch (error) {
+    console.error('[generateManifest] 生成文件清单失败:', error);
+    throw new Error(`文件清单生成失败: ${(error as Error).message}`);
+  }
+}
+
+/**
+ * 生成单个文件 (Single File Generation)
+ * 目的：基于清单逐个生成文件，保持代码完整性
+ */
+async function generateSingleFile(
+  manifestItem: FileManifestItem,
+  manifest: FileManifestItem[],
+  prompt: string,
+  context: any,
+  model: string,
+  modelProvider: any,
+  actualModel: string,
+  systemPrompt: string
+): Promise<{ path: string; content: string }> {
+  console.log(`[generateSingleFile] 开始生成文件: ${manifestItem.path}`);
+
+  // 获取依赖文件的内容（如果已生成）
+  const dependencyContents: string[] = [];
+  if (manifestItem.dependencies && context?.currentFiles) {
+    for (const depPath of manifestItem.dependencies) {
+      const depContent = context.currentFiles[depPath];
+      if (depContent) {
+        dependencyContents.push(`
+// 依赖文件: ${depPath}
+${depContent.substring(0, 500)}... // 截取前500字符作为参考
+`);
+      }
+    }
+  }
+
+  const filePrompt = `
+生成文件：${manifestItem.path}
+
+文件描述：${manifestItem.description}
+文件类型：${manifestItem.type}
+
+${dependencyContents.length > 0 ? `
+依赖的文件（参考）：
+${dependencyContents.join('\n')}
+` : ''}
+
+原始需求：
+${prompt}
+
+🎯 关键要求：
+1. 只生成 ${manifestItem.path} 这一个文件的完整代码
+2. 所有 import 必须在文件顶部
+3. 代码必须完整，不能有省略（...）
+4. 必须包含 export default
+5. 使用 React + Tailwind CSS
+
+输出格式（严格遵守）：
+<file path="${manifestItem.path}">
+// 完整的文件代码
+</file>`;
+
+  try {
+    const result = await streamText({
+      model: modelProvider(actualModel),
+      messages: [
+        {
+          role: 'system',
+          content: systemPrompt + `
+
+🔥 单文件生成模式 - 特殊规则：
+1. 只生成一个文件：${manifestItem.path}
+2. 不要生成其他文件
+3. 不要在代码中插入 import 语句
+4. 确保代码完整无截断`
+        },
+        {
+          role: 'user',
+          content: filePrompt
+        }
+      ],
+      temperature: 0.5,
+    });
+
+    let fileContent = '';
+    for await (const chunk of result.textStream) {
+      fileContent += chunk;
+    }
+
+    console.log(`[generateSingleFile] ${manifestItem.path} 生成完成，长度: ${fileContent.length}`);
+
+    // 提取文件内容
+    const fileMatch = fileContent.match(/<file[^>]*>([\s\S]*?)<\/file>/);
+    if (!fileMatch) {
+      throw new Error(`无法从输出中提取文件内容。输出: ${fileContent.substring(0, 200)}...`);
+    }
+
+    const content = fileMatch[1].trim();
+
+    // 基础验证：检查是否有明显的截断标记
+    if (content.includes('...') && !content.includes('// ...')) {
+      console.warn(`[generateSingleFile] ⚠️ 警告：${manifestItem.path} 可能存在截断`);
+    }
+
+    return {
+      path: manifestItem.path,
+      content: content
+    };
+
+  } catch (error) {
+    console.error(`[generateSingleFile] 生成文件失败: ${manifestItem.path}`, error);
+    throw new Error(`文件生成失败 (${manifestItem.path}): ${(error as Error).message}`);
+  }
+}
+
+/**
+ * 生成技术方案 (Plan Generation)
+ * 目的：在代码生成之前，先让AI输出详细的技术实现方案
+ *
+ * @returns 包含方案全文和建议 manifest 的对象
+ */
+async function generatePlan(
+  prompt: string,
+  context: any,
+  model: string,
+  modelProvider: any,
+  actualModel: string,
+  sendProgress: (data: any) => Promise<void>
+): Promise<PlanGenerationResponse['plan']> {
+  console.log('[generatePlan] 开始生成技术方案...');
+
+  const planPrompt = `
+你是一名资深的全栈架构师和技术专家。用户提出了以下需求，请进行深入分析并输出详细的技术实现方案。
+
+## 用户需求
+${prompt}
+
+${context?.currentFiles && Object.keys(context.currentFiles).length > 0 ? `
+## 现有项目文件
+${Object.keys(context.currentFiles).slice(0, 20).map(f => `- ${f}`).join('\n')}
+${Object.keys(context.currentFiles).length > 20 ? `... 共 ${Object.keys(context.currentFiles).length} 个文件` : ''}
+` : '## 项目状态\n这是一个新项目，从零开始。'}
+
+---
+
+请按以下结构输出技术方案（使用 Markdown 格式，打字机方式逐字输出）：
+
+# 技术实现方案
+
+## 1. 需求分析
+- 核心功能点列表
+- 用户使用场景描述
+- 关键业务逻辑梳理
+
+## 2. 技术选型
+- 前端技术栈（框架、UI库、状态管理等）
+- 后端技术栈（如需要）
+- 第三方库和工具
+- 为什么选择这些技术？
+
+## 3. 架构设计
+- 整体架构图（用 Mermaid 或文字描述）
+- 模块划分
+- 数据流设计
+- 状态管理方案
+
+## 4. 文件拆解
+详细列出需要创建的文件，格式如下：
+
+### 文件清单
+\`\`\`json
+{
+  "files": [
+    {
+      "path": "src/App.jsx",
+      "description": "应用主入口，配置路由和全局状态",
+      "type": "page",
+      "dependencies": ["src/components/Header.jsx"],
+      "isCritical": true,
+      "estimatedLines": 60
+    }
+  ]
+}
+\`\`\`
+
+## 5. 实现步骤
+1. 第一步：...
+2. 第二步：...
+3. ...
+
+## 6. 关键技术点
+- 难点1：...解决方案：...
+- 难点2：...解决方案：...
+
+## 7. 注意事项和风险点
+- ⚠️ 风险1：...
+- ⚠️ 风险2：...
+
+## 8. 预估工作量
+- 预计文件数：X 个
+- 预计开发时间：Y 分钟
+- 复杂度评级：低/中/高
+
+---
+
+🎯 关键要求：
+1. 方案要详细、具体、可执行
+2. 文件清单必须是有效的 JSON 格式
+3. 考虑代码复用和最佳实践
+4. 突出关键技术点和风险
+5. 打字机方式输出，让用户看到思考过程`;
+
+  try {
+    const result = await streamText({
+      model: modelProvider(actualModel),
+      messages: [
+        {
+          role: 'system',
+          content: `你是一名资深全栈架构师，擅长需求分析、技术选型和架构设计。
+你的输出风格是：专业、详细、实用，注重可执行性。
+你会考虑性能、可维护性、可扩展性等工程质量。`
+        },
+        {
+          role: 'user',
+          content: planPrompt
+        }
+      ],
+      temperature: 0.7, // 适中温度平衡创造性和准确性
+    });
+
+    let planContent = '';
+    let lastChunkTime = Date.now();
+
+    // Streaming 输出方案
+    for await (const chunk of result.textStream) {
+      planContent += chunk;
+
+      // 每100ms或每50字符发送一次进度更新（打字机效果）
+      const now = Date.now();
+      if (now - lastChunkTime > 100 || chunk.length > 50) {
+        await sendProgress({
+          type: 'plan_chunk',
+          chunk: chunk,
+          totalLength: planContent.length
+        });
+        lastChunkTime = now;
+      }
+    }
+
+    console.log(`[generatePlan] 方案生成完成，长度: ${planContent.length}`);
+
+    // 提取文件清单 JSON
+    const jsonMatch = planContent.match(/```json\s*([\s\S]*?)\s*```/);
+    let suggestedManifest: FileManifestItem[] = [];
+
+    if (jsonMatch) {
+      try {
+        const manifestData = JSON.parse(jsonMatch[1]);
+        if (manifestData.files && Array.isArray(manifestData.files)) {
+          suggestedManifest = manifestData.files;
+        }
+      } catch (error) {
+        console.warn('[generatePlan] 无法解析 manifest JSON:', error);
+      }
+    }
+
+    // 提取方案摘要
+    const summary = {
+      requirementAnalysis: extractSection(planContent, '需求分析') || '需求分析中...',
+      techStack: extractTechStack(planContent),
+      architecture: extractSection(planContent, '架构设计') || '架构设计中...',
+      totalFiles: suggestedManifest.length,
+      estimatedTime: extractEstimatedTime(planContent),
+      risks: extractRisks(planContent)
+    };
+
+    await sendProgress({
+      type: 'plan_complete',
+      plan: {
+        content: planContent,
+        suggestedManifest,
+        summary
+      }
+    });
+
+    return {
+      content: planContent,
+      suggestedManifest,
+      summary
+    };
+
+  } catch (error) {
+    console.error('[generatePlan] 生成技术方案失败:', error);
+    throw new Error(`技术方案生成失败: ${(error as Error).message}`);
+  }
+}
+
+/**
+ * 从方案中提取指定章节内容
+ */
+function extractSection(content: string, sectionName: string): string {
+  const regex = new RegExp(`##\\s*\\d*\\.?\\s*${sectionName}\\s*([\\s\\S]*?)(?=##|$)`, 'i');
+  const match = content.match(regex);
+  return match ? match[1].trim().substring(0, 200) : '';
+}
+
+/**
+ * 提取技术栈列表
+ */
+function extractTechStack(content: string): string[] {
+  const techSection = extractSection(content, '技术选型');
+  const techs: string[] = [];
+
+  // 匹配常见技术关键词
+  const keywords = ['React', 'Vue', 'Next.js', 'TypeScript', 'Tailwind', 'Node.js', 'Express', 'MongoDB', 'PostgreSQL'];
+  keywords.forEach(keyword => {
+    if (techSection.toLowerCase().includes(keyword.toLowerCase())) {
+      techs.push(keyword);
+    }
+  });
+
+  return techs.length > 0 ? techs : ['React', 'Tailwind CSS'];
+}
+
+/**
+ * 提取预估时间（分钟）
+ */
+function extractEstimatedTime(content: string): number {
+  const timeMatch = content.match(/预计开发时间[：:]\s*(\d+)\s*分钟/);
+  return timeMatch ? parseInt(timeMatch[1]) : 60;
+}
+
+/**
+ * 提取风险点列表
+ */
+function extractRisks(content: string): string[] {
+  const riskSection = extractSection(content, '注意事项和风险点');
+  const risks: string[] = [];
+
+  // 匹配 ⚠️ 或 - 开头的行
+  const riskLines = riskSection.match(/[⚠️\-]\s*([^\n]+)/g);
+  if (riskLines) {
+    riskLines.forEach(line => {
+      const cleaned = line.replace(/^[⚠️\-]\s*/, '').trim();
+      if (cleaned) {
+        risks.push(cleaned);
+      }
+    });
+  }
+
+  return risks.slice(0, 5); // 最多5个风险点
 }
