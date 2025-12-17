@@ -24,6 +24,8 @@ import {
 } from '@/lib/icons';
 import { motion } from 'framer-motion';
 import CodeApplicationProgress, { type CodeApplicationState } from '@/components/CodeApplicationProgress';
+import TechnicalPlanView from '@/components/TechnicalPlanView';
+import type { PlanGenerationResponse } from '@/types/generation';
 
 interface SandboxData {
   sandboxId: string;
@@ -92,7 +94,14 @@ function AISandboxPage() {
   const [sandboxFiles, setSandboxFiles] = useState<Record<string, string>>({});
   const [hasInitialSubmission, setHasInitialSubmission] = useState<boolean>(false);
   const [fileStructure, setFileStructure] = useState<string>('');
-  
+
+  // Plan 模式相关状态
+  const [planMode, setPlanMode] = useState<'idle' | 'generating' | 'complete'>('idle');
+  const [planContent, setPlanContent] = useState('');
+  const [planSummary, setPlanSummary] = useState<PlanGenerationResponse['plan']['summary'] | null>(null);
+  const [suggestedManifest, setSuggestedManifest] = useState<PlanGenerationResponse['plan']['suggestedManifest']>([]);
+  const [originalPrompt, setOriginalPrompt] = useState(''); // 保存原始用户需求
+
   const [conversationContext, setConversationContext] = useState<{
     scrapedWebsites: Array<{ url: string; content: any; timestamp: Date }>;
     generatedComponents: Array<{ name: string; path: string; content: string }>;
@@ -615,13 +624,13 @@ function AISandboxPage() {
     setScreenshotError(null);
 
     try {
-      // E2B sandbox creation takes approximately 30-35 seconds
-      // Set timeout to 60 seconds to allow sufficient time
+      // E2B sandbox creation takes approximately 30-35 seconds, but can take longer
+      // Set timeout to 120 seconds to allow sufficient time
       const response = await fetch('/api/create-ai-sandbox-v2', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
-        signal: AbortSignal.timeout(60000) // 60 second timeout
+        signal: AbortSignal.timeout(120000) // 120 second timeout
       });
       
       const data = await response.json();
@@ -684,9 +693,9 @@ Tip: I automatically detect and install npm packages from your code imports (lik
       // Improve error messages for common issues
       let errorMessage = error.message;
       if (error.name === 'TimeoutError' || error.message.includes('timeout')) {
-        errorMessage = 'Sandbox creation timed out. This usually means E2B service is slow. Please try again in a moment.';
+        errorMessage = 'Sandbox creation timed out (limit: 120s). This usually means E2B service is slow. Please try again in a moment.';
       } else if (error.message.includes('fetch failed')) {
-        errorMessage = 'Network error connecting to E2B. Please check your internet connection and try again.';
+        errorMessage = 'Network error connecting to E2B (fetch failed). Please check your internet connection and try again. If the issue persists, check server logs.';
       }
 
       log(`Failed to create sandbox: ${errorMessage}`, 'error');
@@ -1284,6 +1293,35 @@ Tip: I automatically detect and install npm packages from your code imports (lik
 //   };
 
   const renderMainContent = () => {
+    // 🔥 优先显示技术方案视图（Plan 模式）
+    if (planMode === 'generating' || planMode === 'complete') {
+      return (
+        <TechnicalPlanView
+          planContent={planContent}
+          isGenerating={planMode === 'generating'}
+          summary={planSummary || undefined}
+          suggestedManifest={suggestedManifest}
+          onConfirm={handlePlanConfirm}
+          onEdit={() => {
+            // 用户想修改方案，返回输入界面
+            setPlanMode('idle');
+            setPlanContent('');
+            setPlanSummary(null);
+            setSuggestedManifest([]);
+            setShowHomeScreen(true);
+          }}
+          onCancel={() => {
+            // 取消方案，返回输入界面
+            setPlanMode('idle');
+            setPlanContent('');
+            setPlanSummary(null);
+            setSuggestedManifest([]);
+            setShowHomeScreen(true);
+          }}
+        />
+      );
+    }
+
     if (activeTab === 'generation' && (generationProgress.isGenerating || generationProgress.files.length > 0)) {
       return (
         /* Generation Tab Content */
@@ -2787,6 +2825,352 @@ Tip: I automatically detect and install npm packages from your code imports (lik
     await startGeneration();
   };
 
+  // 生成技术方案 (Plan 模式)
+  const generateTechnicalPlan = async (prompt: string, url: string) => {
+    console.log('[generateTechnicalPlan] 开始生成技术方案...');
+
+    setPlanMode('generating');
+    setPlanContent('');
+    setOriginalPrompt(prompt); // 保存原始 prompt
+
+    // 切换到 generation tab 显示方案
+    setActiveTab('generation');
+    setLoadingStage(null); // 清除 loading stage
+
+    // 添加用户提示
+    addChatMessage('正在分析需求并制定技术方案，请稍候...', 'system');
+
+    try {
+      const response = await fetch('/api/generate-ai-code-stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: prompt,
+          model: aiModel,
+          context: {
+            sandboxId: sandboxData?.sandboxId,
+            currentFiles: sandboxFiles
+          },
+          generation: {
+            mode: 'plan' // 🔥 第一步：生成技术方案
+          }
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      if (!response.body) {
+        throw new Error('响应体为空，无法接收方案数据');
+      }
+
+      // Streaming 接收方案内容（打字机效果）
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let hasReceivedData = false;
+      let completeEventReceived = false;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          console.log('[generateTechnicalPlan] Stream 结束');
+          break;
+        }
+
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n\n');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              hasReceivedData = true;
+
+              // 实时更新方案内容（打字机效果）
+              if (data.type === 'plan_chunk') {
+                setPlanContent(prev => prev + data.chunk);
+              }
+
+              // 方案生成完成 - plan 数据通过 SSE 事件传递
+              if (data.type === 'plan_complete' && data.plan) {
+                console.log('[generateTechnicalPlan] 方案生成完成');
+                completeEventReceived = true;
+                setPlanMode('complete');
+                setPlanSummary(data.plan.summary);
+                setSuggestedManifest(data.plan.suggestedManifest);
+                console.log('[generateTechnicalPlan] ✅ 技术方案生成完成，共 ', data.plan.suggestedManifest.length, ' 个文件');
+                addChatMessage(`技术方案已生成，共计划生成 ${data.plan.suggestedManifest.length} 个文件`, 'system');
+              }
+
+              // 错误处理
+              if (data.type === 'error') {
+                throw new Error(data.error || '生成过程中发生错误');
+              }
+            } catch (e) {
+              console.error('[generateTechnicalPlan] 解析 SSE 数据失败:', e);
+              // 只有在解析 JSON 失败时才记录错误，不影响整体流程
+              if (!(e instanceof SyntaxError)) {
+                throw e; // 重新抛出非 JSON 解析错误
+              }
+            }
+          }
+        }
+      }
+
+      // 验证是否收到完整数据
+      if (!hasReceivedData) {
+        throw new Error('未收到任何方案数据，请检查网络连接');
+      }
+
+      if (!completeEventReceived) {
+        console.warn('[generateTechnicalPlan] ⚠️ 未收到 plan_complete 事件，但已收到部分数据');
+        // 如果有内容但没有收到 complete 事件，仍然标记为完成
+        if (planContent.length > 100) {
+          setPlanMode('complete');
+          addChatMessage('技术方案生成完成（部分数据）', 'system');
+        } else {
+          throw new Error('方案数据不完整，请重试');
+        }
+      }
+
+    } catch (error) {
+      console.error('[generateTechnicalPlan] 技术方案生成失败:', error);
+      setPlanMode('idle');
+      setPlanContent(''); // 清空已接收的内容
+      const errorMessage = error instanceof Error ? error.message : '未知错误';
+      addChatMessage(`技术方案生成失败: ${errorMessage}。您可以重试或调整需求后再试。`, 'error');
+    }
+  };
+
+  // 用户确认方案后，开始代码生成
+  const handlePlanConfirm = async () => {
+    console.log('[handlePlanConfirm] 用户确认方案，开始生成代码...');
+
+    // 重置 Plan 状态
+    setPlanMode('idle');
+
+    // 继续执行代码生成流程（使用保存的 originalPrompt）
+    try {
+      const url = homeUrlInput.trim();
+      const prompt = originalPrompt;
+
+      setGenerationProgress(prev => ({
+        isGenerating: true,
+        status: 'Initializing AI...',
+        components: [],
+        currentComponent: 0,
+        streamedCode: '',
+        isStreaming: true,
+        isThinking: false,
+        thinkingText: undefined,
+        thinkingDuration: undefined,
+        files: prev.files || [],
+        currentFile: undefined,
+        lastProcessedPosition: 0
+      }));
+
+      const aiResponse = await fetch('/api/generate-ai-code-stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt,
+          model: aiModel,
+          context: {
+            sandboxId: sandboxData?.sandboxId,
+            structure: structureContent,
+            conversationContext: conversationContext
+          }
+        })
+      });
+
+      if (!aiResponse.ok || !aiResponse.body) {
+        throw new Error('Failed to generate code');
+      }
+
+      const reader = aiResponse.body.getReader();
+      const decoder = new TextDecoder();
+      let generatedCode = '';
+      let explanation = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+
+              if (data.type === 'status') {
+                setGenerationProgress(prev => ({ ...prev, status: data.message }));
+              } else if (data.type === 'thinking') {
+                setGenerationProgress(prev => ({
+                  ...prev,
+                  isThinking: true,
+                  thinkingText: (prev.thinkingText || '') + data.text
+                }));
+              } else if (data.type === 'thinking_complete') {
+                setGenerationProgress(prev => ({
+                  ...prev,
+                  isThinking: false,
+                  thinkingDuration: data.duration
+                }));
+              } else if (data.type === 'conversation') {
+                let text = data.text || '';
+                text = text.replace(/<package>[^<]*<\/package>/g, '');
+                text = text.replace(/<packages>[^<]*<\/packages>/g, '');
+
+                if (!text.includes('<file') && !text.includes('import React') &&
+                    !text.includes('export default') && !text.includes('className=') &&
+                    text.trim().length > 0) {
+                  addChatMessage(text.trim(), 'ai');
+                }
+              } else if (data.type === 'stream' && data.raw) {
+                setGenerationProgress(prev => {
+                  const newStreamedCode = prev.streamedCode + data.text;
+
+                  const updatedState = {
+                    ...prev,
+                    streamedCode: newStreamedCode,
+                    isStreaming: true,
+                    isThinking: false,
+                    status: 'Generating code...'
+                  };
+
+                  const fileRegex = /<file path="([^"]+)">([^]*?)<\/file>/g;
+                  let match;
+                  const processedFiles = new Set(prev.files.map(f => f.path));
+
+                  while ((match = fileRegex.exec(newStreamedCode)) !== null) {
+                    const filePath = match[1];
+                    const fileContent = match[2];
+
+                    if (!processedFiles.has(filePath)) {
+                      const fileExt = filePath.split('.').pop() || '';
+                      const fileType = fileExt === 'jsx' || fileExt === 'js' ? 'javascript' :
+                                      fileExt === 'css' ? 'css' :
+                                      fileExt === 'json' ? 'json' :
+                                      fileExt === 'html' ? 'html' : 'text';
+
+                      const existingFileIndex = updatedState.files.findIndex(f => f.path === filePath);
+
+                      if (existingFileIndex >= 0) {
+                        updatedState.files = [
+                          ...updatedState.files.slice(0, existingFileIndex),
+                          {
+                            ...updatedState.files[existingFileIndex],
+                            content: fileContent.trim(),
+                            type: fileType,
+                            completed: true,
+                            edited: true
+                          },
+                          ...updatedState.files.slice(existingFileIndex + 1)
+                        ];
+                      } else {
+                        updatedState.files = [...updatedState.files, {
+                          path: filePath,
+                          content: fileContent.trim(),
+                          type: fileType,
+                          completed: true,
+                          edited: false
+                        }];
+                      }
+
+                      if (!prev.isEdit) {
+                        updatedState.status = `Completed ${filePath}`;
+                      }
+                      processedFiles.add(filePath);
+                    }
+                  }
+
+                  const lastFileMatch = newStreamedCode.match(/<file path="([^"]+)">([^]*?)$/);
+                  if (lastFileMatch && !lastFileMatch[0].includes('</file>')) {
+                    const filePath = lastFileMatch[1];
+                    const partialContent = lastFileMatch[2];
+
+                    if (!processedFiles.has(filePath)) {
+                      const fileExt = filePath.split('.').pop() || '';
+                      const fileType = fileExt === 'jsx' || fileExt === 'js' ? 'javascript' :
+                                      fileExt === 'css' ? 'css' :
+                                      fileExt === 'json' ? 'json' :
+                                      fileExt === 'html' ? 'html' : 'text';
+
+                      updatedState.currentFile = {
+                        path: filePath,
+                        content: partialContent,
+                        type: fileType
+                      };
+                      if (!prev.isEdit) {
+                        updatedState.status = `Generating ${filePath}`;
+                      }
+                    }
+                  } else {
+                    updatedState.currentFile = undefined;
+                  }
+
+                  return updatedState;
+                });
+              } else if (data.type === 'complete') {
+                generatedCode = data.generatedCode;
+                explanation = data.explanation;
+
+                setConversationContext(prev => ({
+                  ...prev,
+                  lastGeneratedCode: generatedCode
+                }));
+              }
+            } catch (e) {
+              console.error('Failed to parse SSE data:', e);
+            }
+          }
+        }
+      }
+
+      setGenerationProgress(prev => ({
+        ...prev,
+        isGenerating: false,
+        isStreaming: false,
+        status: 'Generation complete!'
+      }));
+
+      if (generatedCode) {
+        addChatMessage('AI recreation generated!', 'system');
+
+        if (explanation && explanation.trim()) {
+          addChatMessage(explanation, 'ai');
+        }
+
+        setPromptInput(generatedCode);
+
+        await applyGeneratedCode(generatedCode, false);
+
+        const url = homeUrlInput.trim();
+        addChatMessage(
+          `Successfully recreated ${url} as a modern React app! The scraped content is now in my context.`,
+          'ai'
+        );
+
+        // 切换到预览 Tab
+        setActiveTab('preview');
+      }
+
+    } catch (error) {
+      console.error('[handlePlanConfirm] 代码生成失败:', error);
+      setGenerationProgress(prev => ({
+        ...prev,
+        isGenerating: false,
+        isStreaming: false,
+        status: 'Generation failed'
+      }));
+      addChatMessage(`Code generation failed: ${(error as Error).message}`, 'error');
+    }
+  };
+
   const startGeneration = async () => {
     if (!homeUrlInput.trim()) return;
     
@@ -2964,266 +3348,14 @@ IMPORTANT INSTRUCTIONS:
 ${filteredContext ? '- Apply the user\'s context/theme requirements throughout the application' : ''}
 
 Focus on the key sections and content, making it clean and modern.`;
-        
-        setGenerationProgress(prev => ({
-          isGenerating: true,
-          status: 'Initializing AI...',
-          components: [],
-          currentComponent: 0,
-          streamedCode: '',
-          isStreaming: true,
-          isThinking: false,
-          thinkingText: undefined,
-          thinkingDuration: undefined,
-          // Keep previous files until new ones are generated
-          files: prev.files || [],
-          currentFile: undefined,
-          lastProcessedPosition: 0
-        }));
-        
-        const aiResponse = await fetch('/api/generate-ai-code-stream', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            prompt,
-            model: aiModel,
-            context: {
-              sandboxId: sandboxData?.sandboxId,
-              structure: structureContent,
-              conversationContext: conversationContext
-            }
-          })
-        });
-        
-        if (!aiResponse.ok || !aiResponse.body) {
-          throw new Error('Failed to generate code');
-        }
-        
-        const reader = aiResponse.body.getReader();
-        const decoder = new TextDecoder();
-        let generatedCode = '';
-        let explanation = '';
-        
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          
-          const chunk = decoder.decode(value);
-          const lines = chunk.split('\n');
-          
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              try {
-                const data = JSON.parse(line.slice(6));
-                
-                if (data.type === 'status') {
-                  setGenerationProgress(prev => ({ ...prev, status: data.message }));
-                } else if (data.type === 'thinking') {
-                  setGenerationProgress(prev => ({ 
-                    ...prev, 
-                    isThinking: true,
-                    thinkingText: (prev.thinkingText || '') + data.text
-                  }));
-                } else if (data.type === 'thinking_complete') {
-                  setGenerationProgress(prev => ({ 
-                    ...prev, 
-                    isThinking: false,
-                    thinkingDuration: data.duration
-                  }));
-                } else if (data.type === 'conversation') {
-                  // Add conversational text to chat only if it's not code
-                  let text = data.text || '';
-                  
-                  // Remove package tags from the text
-                  text = text.replace(/<package>[^<]*<\/package>/g, '');
-                  text = text.replace(/<packages>[^<]*<\/packages>/g, '');
-                  
-                  // Filter out any XML tags and file content that slipped through
-                  if (!text.includes('<file') && !text.includes('import React') && 
-                      !text.includes('export default') && !text.includes('className=') &&
-                      text.trim().length > 0) {
-                    addChatMessage(text.trim(), 'ai');
-                  }
-                } else if (data.type === 'stream' && data.raw) {
-                  setGenerationProgress(prev => {
-                    const newStreamedCode = prev.streamedCode + data.text;
-                    
-                    // Tab is already switched after scraping
-                    
-                    const updatedState = { 
-                      ...prev, 
-                      streamedCode: newStreamedCode,
-                      isStreaming: true,
-                      isThinking: false,
-                      status: 'Generating code...'
-                    };
-                    
-                    // Process complete files from the accumulated stream
-                    const fileRegex = /<file path="([^"]+)">([^]*?)<\/file>/g;
-                    let match;
-                    const processedFiles = new Set(prev.files.map(f => f.path));
-                    
-                    while ((match = fileRegex.exec(newStreamedCode)) !== null) {
-                      const filePath = match[1];
-                      const fileContent = match[2];
-                      
-                      // Only add if we haven't processed this file yet
-                      if (!processedFiles.has(filePath)) {
-                        const fileExt = filePath.split('.').pop() || '';
-                        const fileType = fileExt === 'jsx' || fileExt === 'js' ? 'javascript' :
-                                        fileExt === 'css' ? 'css' :
-                                        fileExt === 'json' ? 'json' :
-                                        fileExt === 'html' ? 'html' : 'text';
-                        
-                        // Check if file already exists
-                        const existingFileIndex = updatedState.files.findIndex(f => f.path === filePath);
-                        
-                        if (existingFileIndex >= 0) {
-                          // Update existing file and mark as edited
-                          updatedState.files = [
-                            ...updatedState.files.slice(0, existingFileIndex),
-                            {
-                              ...updatedState.files[existingFileIndex],
-                              content: fileContent.trim(),
-                              type: fileType,
-                              completed: true,
-                              edited: true
-                            },
-                            ...updatedState.files.slice(existingFileIndex + 1)
-                          ];
-                        } else {
-                          // Add new file
-                          updatedState.files = [...updatedState.files, {
-                            path: filePath,
-                            content: fileContent.trim(),
-                            type: fileType,
-                            completed: true,
-                            edited: false
-                          }];
-                        }
-                        
-                        // Only show file status if not in edit mode
-                        if (!prev.isEdit) {
-                          updatedState.status = `Completed ${filePath}`;
-                        }
-                        processedFiles.add(filePath);
-                      }
-                    }
-                    
-                    // Check for current file being generated (incomplete file at the end)
-                    const lastFileMatch = newStreamedCode.match(/<file path="([^"]+)">([^]*?)$/);
-                    if (lastFileMatch && !lastFileMatch[0].includes('</file>')) {
-                      const filePath = lastFileMatch[1];
-                      const partialContent = lastFileMatch[2];
-                      
-                      if (!processedFiles.has(filePath)) {
-                        const fileExt = filePath.split('.').pop() || '';
-                        const fileType = fileExt === 'jsx' || fileExt === 'js' ? 'javascript' :
-                                        fileExt === 'css' ? 'css' :
-                                        fileExt === 'json' ? 'json' :
-                                        fileExt === 'html' ? 'html' : 'text';
-                        
-                        updatedState.currentFile = { 
-                          path: filePath, 
-                          content: partialContent, 
-                          type: fileType 
-                        };
-                        // Only show file status if not in edit mode
-                        if (!prev.isEdit) {
-                          updatedState.status = `Generating ${filePath}`;
-                        }
-                      }
-                    } else {
-                      updatedState.currentFile = undefined;
-                    }
-                    
-                    return updatedState;
-                  });
-                } else if (data.type === 'complete') {
-                  generatedCode = data.generatedCode;
-                  explanation = data.explanation;
-                  
-                  // Save the last generated code
-                  setConversationContext(prev => ({
-                    ...prev,
-                    lastGeneratedCode: generatedCode
-                  }));
-                }
-              } catch (e) {
-                console.error('Failed to parse SSE data:', e);
-              }
-            }
-          }
-        }
-        
-        setGenerationProgress(prev => ({
-          ...prev,
-          isGenerating: false,
-          isStreaming: false,
-          status: 'Generation complete!'
-        }));
-        
-        if (generatedCode) {
-          addChatMessage('AI recreation generated!', 'system');
-          
-          // Add the explanation to chat if available
-          if (explanation && explanation.trim()) {
-            addChatMessage(explanation, 'ai');
-          }
-          
-          setPromptInput(generatedCode);
-          
-          // First application for cloned site should not be in edit mode
-          await applyGeneratedCode(generatedCode, false);
-          
-          addChatMessage(
-            `Successfully recreated ${url} as a modern React app${homeContextInput ? ` with your requested context: "${homeContextInput}"` : ''}! The scraped content is now in my context, so you can ask me to modify specific sections or add features based on the original site.`, 
-            'ai',
-            {
-              scrapedUrl: url,
-              scrapedContent: scrapeData,
-              generatedCode: generatedCode
-            }
-          );
-          
-          setConversationContext(prev => ({
-            ...prev,
-            generatedComponents: [],
-            appliedCode: [...prev.appliedCode, {
-              files: [],
-              timestamp: new Date()
-            }]
-          }));
-        } else {
-          throw new Error('Failed to generate recreation');
-        }
-        
-        setUrlInput('');
-        setUrlStatus([]);
-        setHomeContextInput('');
-        
-        // Clear generation progress and all screenshot/design states
-        setGenerationProgress(prev => ({
-          ...prev,
-          isGenerating: false,
-          isStreaming: false,
-          status: 'Generation complete!'
-        }));
-        
-        // Clear screenshot and preparing design states to prevent them from showing on next run
-        setIsScreenshotLoaded(false); // Reset loaded state
-        setUrlScreenshot(null);
-        setIsPreparingDesign(false);
-        setTargetUrl('');
-        setScreenshotError(null);
-        setLoadingStage(null); // Clear loading stage
-        setIsStartingNewGeneration(false); // Clear new generation flag
-        setShowLoadingBackground(false); // Clear loading background
-        
-        setTimeout(() => {
-          // Switch back to preview tab but keep files
-          setActiveTab('preview');
-        }, 1000); // Show completion briefly then switch
+
+        // 🔥 第一步：生成技术方案（Plan 模式）
+        console.log('[startGeneration] 调用 Plan 模式生成技术方案...');
+        await generateTechnicalPlan(prompt, url);
+
+        // 注意：代码生成将在用户确认方案后，由 handlePlanConfirm() 继续执行
+        // （旧的直接代码生成逻辑已移至 handlePlanConfirm()）
+
       } catch (error: any) {
         addChatMessage(`Failed to clone website: ${error.message}`, 'system');
         setUrlStatus([]);
