@@ -1322,6 +1322,31 @@ Tip: I automatically detect and install npm packages from your code imports (lik
       );
     }
 
+    // 🔥 Code Tab空白状态提示
+    if (activeTab === 'generation' && generationProgress.files.length === 0 && !generationProgress.isGenerating && planMode === 'idle') {
+      return (
+        <div className="flex items-center justify-center h-full bg-gray-50">
+          <div className="text-center max-w-md px-6">
+            <div className="mb-6">
+              <svg className="w-20 h-20 mx-auto text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+              </svg>
+            </div>
+            <h3 className="text-xl font-semibold text-gray-900 mb-3">代码尚未生成</h3>
+            <p className="text-sm text-gray-600 mb-6 leading-relaxed">
+              请先输入URL或需求描述，系统将为您生成技术方案并开始代码生成
+            </p>
+            <button
+              onClick={() => setShowHomeScreen(true)}
+              className="px-6 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors shadow-sm hover:shadow-md"
+            >
+              开始创建项目
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     if (activeTab === 'generation' && (generationProgress.isGenerating || generationProgress.files.length > 0)) {
       return (
         /* Generation Tab Content */
@@ -3750,9 +3775,13 @@ Focus on the key sections and content, making it clean and modern.`;
               <div className="inline-flex bg-gray-100 border border-gray-200 rounded-md p-0.5">
                 <button
                   onClick={() => setActiveTab('generation')}
+                  disabled={planMode === 'complete' || (generationProgress.files.length === 0 && !generationProgress.isGenerating && planMode === 'idle')}
+                  title={planMode === 'complete' ? '请先确认技术方案' : generationProgress.files.length === 0 && !generationProgress.isGenerating ? '代码尚未生成' : ''}
                   className={`px-3 py-1 rounded transition-all text-xs font-medium ${
-                    activeTab === 'generation' 
-                      ? 'bg-white text-gray-900 shadow-sm' 
+                    activeTab === 'generation'
+                      ? 'bg-white text-gray-900 shadow-sm'
+                      : (planMode === 'complete' || (generationProgress.files.length === 0 && !generationProgress.isGenerating && planMode === 'idle'))
+                      ? 'bg-transparent text-gray-400 cursor-not-allowed'
                       : 'bg-transparent text-gray-600 hover:text-gray-900'
                   }`}
                 >
