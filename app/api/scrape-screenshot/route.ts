@@ -9,6 +9,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'URL is required' }, { status: 400 });
     }
 
+    // ✅ E2E/离线测试模式：不调用 Firecrawl，直接返回空截图
+    if (process.env.OPEN_LOVABLE_E2E === '1') {
+      return NextResponse.json({
+        success: true,
+        screenshot: null,
+        metadata: { source: 'mock' },
+        warning: 'Screenshot skipped in E2E mock mode (OPEN_LOVABLE_E2E=1).'
+      });
+    }
+
     // Initialize Firecrawl with API key from environment
     const apiKey = process.env.FIRECRAWL_API_KEY;
     

@@ -24,6 +24,36 @@ export async function POST(request: NextRequest) {
         error: 'URL is required'
       }, { status: 400 });
     }
+
+    // ✅ E2E/离线测试模式：返回固定内容，避免真实网络抓取
+    if (process.env.OPEN_LOVABLE_E2E === '1') {
+      const now = new Date().toISOString();
+      return NextResponse.json({
+        success: true,
+        url,
+        content: `# Mock Site\n\n这是用于 E2E 验证的爬取内容（OPEN_LOVABLE_E2E=1）。\n\nURL: ${url}\n`,
+        screenshot: null,
+        structured: {
+          title: 'Mock Site',
+          description: 'E2E Mock 内容',
+          content: `# Mock Site\n\nMock markdown for ${url}\n`,
+          url,
+          screenshot: null,
+        },
+        metadata: {
+          scraper: 'mock',
+          fallbackUsed: false,
+          attemptedScraper: 'mock',
+          timestamp: now,
+          contentLength: 0,
+          cached: true,
+          sourceURL: url,
+          title: 'Mock Site',
+          favicon: null,
+        },
+        message: 'URL scraped successfully (mock)',
+      });
+    }
     
     console.log('[scrape-url-enhanced] Starting scrape for:', url);
     

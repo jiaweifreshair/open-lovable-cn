@@ -12,12 +12,15 @@
 import type { Dispatcher as UndiciDispatcher } from 'undici';
 
 // E2B相关域名不走代理（WebSocket连接不兼容HTTP代理）
+// AI API域名也不走代理（避免超时）
 const NO_PROXY_DOMAINS = [
   '.e2b.app',
   '.e2b.dev',
   'api.e2b.dev',
   'localhost',
   '127.0.0.1',
+  'cs.imds.ai',      // Gemini GCA API
+  'api.qnaigc.com',  // 七牛云AI API
 ];
 
 export async function register() {

@@ -24,8 +24,8 @@ class HeartbeatManager {
   private heartbeats: Map<string, HeartbeatInfo> = new Map();
   private checkInterval: NodeJS.Timeout | null = null;
 
-  // 心跳超时时间（5分钟无心跳视为超时）
-  private readonly HEARTBEAT_TIMEOUT = 5 * 60 * 1000;
+  // 心跳超时时间（30分钟无心跳视为超时）
+  private readonly HEARTBEAT_TIMEOUT = 30 * 60 * 1000;
 
   // 检查间隔（每分钟检查一次）
   private readonly CHECK_INTERVAL = 60 * 1000;

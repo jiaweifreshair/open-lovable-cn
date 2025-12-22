@@ -25,6 +25,8 @@ import {
   validateCompleteness,
   autoFix,
   assembleGeneratedCode,
+  normalizeXmlTags,
+  repairBrokenXmlTags,
   type ValidationIssue
 } from '@/lib/multi-turn-fix-engine';
 // 🔥 V3.0 分段生成策略 - 解决token超限和代码混乱
@@ -311,6 +313,13 @@ export async function POST(request: NextRequest) {
       try {
         // Send initial status
         await sendProgress({ type: 'status', message: 'Initializing AI...' });
+
+        // ✅ E2E/离线测试模式：不调用外部服务，直接使用 Mock 输出
+        if (isE2eMockEnabled()) {
+          console.log('[generate-ai-code-stream] ✅ OPEN_LOVABLE_E2E=1，使用 Mock 生成数据');
+          await runE2eMockGeneration(generation, sendProgress);
+          return;
+        }
         
         // No keep-alive needed - sandbox provisioned for 10 minutes
         
@@ -1384,13 +1393,8 @@ MORPH FAST APPLY MODE (EDIT-ONLY):
 
             console.log(`[generate-ai-code-stream] Manifest 生成完成，共 ${manifest.length} 个文件`);
 
-            return NextResponse.json({
-              success: true,
-              mode: 'manifest',
-              manifest,
-              totalFiles: manifest.length,
-              estimatedTime: manifest.reduce((sum, f) => sum + (f.estimatedLines || 50), 0) / 20 // 预估每20行1秒
-            });
+            // ✅ streaming API：manifest 数据已通过 SSE 发送，直接结束当前流程
+            return; // 退出异步 IIFE，触发 finally 块关闭 stream
 
           } catch (error) {
             console.error('[generate-ai-code-stream] Manifest generation failed:', error);
@@ -1437,7 +1441,8 @@ MORPH FAST APPLY MODE (EDIT-ONLY):
               model,
               modelProvider,
               actualModel,
-              systemPrompt
+              systemPrompt,
+              sendProgress // 🔥 传入 sendProgress 以支持打字机效果
             );
 
             const isComplete = generation.fileIndex === totalFiles - 1;
@@ -1453,15 +1458,8 @@ MORPH FAST APPLY MODE (EDIT-ONLY):
 
             console.log(`[generate-ai-code-stream] 文件生成完成: ${fileResult.path} (${fileResult.content.length} 字符)`);
 
-            return NextResponse.json({
-              success: true,
-              mode: 'file',
-              fileIndex: generation.fileIndex,
-              totalFiles,
-              file: fileResult,
-              progress,
-              isComplete
-            });
+            // ✅ streaming API：file 数据已通过 SSE 发送，直接结束当前流程
+            return; // 退出异步 IIFE，触发 finally 块关闭 stream
 
           } catch (error) {
             console.error(`[generate-ai-code-stream] File generation failed for ${manifestItem.path}:`, error);
@@ -1613,6 +1611,7 @@ It's better to have 3 complete files than 10 incomplete files.`
           loopCount++;
           let result;
           let retryCount = 0;
+          let isContinuationStart = loopCount > 1; // 🔥 Flag to detect start of continuation
           const maxRetries = 2;
           let fallbackToGeminiUsed = false;
 
@@ -1630,10 +1629,12 @@ It's better to have 3 complete files than 10 incomplete files.`
              console.log(`[generate-ai-code-stream] Starting continuation loop ${loopCount}`);
 
              // 🔥 CRITICAL FIX: Parse already generated files to track progress
+             // 🔥 先规范化 XML 标签，处理空白问题
+             const normalizedCode = normalizeXmlTags(generatedCode);
              const generatedFiles: string[] = [];
-             const fileRegex = /<file path="([^"]+)">([\s\S]*?)(?:<\/file>|$)/g;
+             const fileRegex = /<file\s+path="([^"]+)">([\s\S]*?)(?:<\/file>|$)/g;
              let match;
-             while ((match = fileRegex.exec(generatedCode)) !== null) {
+             while ((match = fileRegex.exec(normalizedCode)) !== null) {
                generatedFiles.push(match[1]);
              }
 
@@ -1654,7 +1655,8 @@ It's better to have 3 complete files than 10 incomplete files.`
              }
 
              // 🔥 分析截断点上下文，帮助 AI 更准确地继续
-             const lastFileMatch = generatedCode.match(/<file path="([^"]+)">[^]*$/);
+             // 🔥 使用灵活空白正则
+             const lastFileMatch = normalizedCode.match(/<file\s+path="([^"]+)">[^]*$/);
              const isInMiddleOfFile = lastFileMatch && !generatedCode.endsWith('</file>');
              const currentFileName = lastFileMatch ? lastFileMatch[1] : 'unknown';
 
@@ -1663,6 +1665,11 @@ It's better to have 3 complete files than 10 incomplete files.`
              const contextHint = isInMiddleOfFile
                ? `\n📍 Truncation Context (last 200 chars):\n\`\`\`\n${lastContext}\n\`\`\`\n`
                : '';
+
+             // 🔥 动态生成续写指令
+             const continuationInstruction = isInMiddleOfFile
+                ? `\n⚠️ CRITICAL: You are currently IN THE MIDDLE of file "${currentFileName}".\n- CONTINUE CODE GENERATION IMMEDIATELY from the last character.\n- DO NOT output <file> tags.\n- DO NOT output the file path.\n- DO NOT output markdown code blocks.\n- Just write the next line of code.`
+                : `\n⚠️ You are between files. Start the next file using <file path="..."> tag.`;
 
              currentMessages = [
                ...streamOptions.messages,
@@ -1679,22 +1686,16 @@ It's better to have 3 complete files than 10 incomplete files.`
 - Currently ${isInMiddleOfFile ? `IN THE MIDDLE of file: ${currentFileName}` : 'between files'}
 ${missingFilesReminder}
 ${contextHint}
+${continuationInstruction}
+
 🚨 CRITICAL RULES - MUST FOLLOW:
-1. Do NOT repeat code that was already generated
-2. Continue from the EXACT character where you stopped - look at the context above
-3. If you were in the middle of a file, complete that file first with proper syntax
-4. 🚫 NEVER insert import statements in the middle of code - imports MUST be at the top of files
-5. 🚫 If you realize an import is missing, DO NOT add it inline - finish the current file first, then generate a <fix-imports> block after </file>
-6. Start immediately with the next character - no explanations needed
-7. DO NOT use <thinking> tags in this continuation - output CODE ONLY
-
-⚠️ IMPORT RULE: If you need to add missing imports, use this format AFTER closing the current file:
-</file>
-<fix-imports file="path/to/file.jsx">
-import { MissingComponent } from 'source';
-</fix-imports>
-
-This ensures imports are properly placed at the top of the file during post-processing.]`
+1. Do NOT repeat code that was already generated (look at the context above).
+2. Continue from the EXACT character where you stopped.
+3. If you were in the middle of a file, complete that file first with proper syntax.
+4. 🚫 NEVER insert import statements in the middle of code.
+5. 🚫 If you realize an import is missing, DO NOT add it inline - finish the current file first.
+6. Start immediately with the next character - no explanations needed.
+7. DO NOT use <thinking> tags in this continuation - output CODE ONLY.]`
                }
              ];
              // Update options with new messages
@@ -1834,7 +1835,26 @@ This ensures imports are properly placed at the top of the file during post-proc
           
           // Stream the raw text for live preview
           for await (const textPart of result?.textStream || []) {
-            const text = textPart || '';
+            let text = textPart || '';
+
+            // 🔥 Continuation Cleanup: Remove repeated filenames or artifacts
+            if (isContinuationStart && isInFile) {
+                // Regex to find and remove artifacts like `Step.jsx">`, ````, or a repeated `<file...>` tag at the beginning of a chunk.
+                // It handles optional leading whitespace (\s*)
+                const artifactRegex = /^\s*(?:[a-zA-Z0-9_/-]+\.[a-zA-Z]+">|```[a-z]*\n?|<file\s+path="[^"]+">)/;
+
+                if (text.match(artifactRegex)) {
+                    const matchedArtifact = text.match(artifactRegex)![0];
+                    console.log(`[generate-ai-code-stream] 🧹 Cleaning continuation artifact: "${matchedArtifact.trim()}"`);
+                    text = text.replace(artifactRegex, '');
+                }
+
+                // Turn off flag after processing the first meaningful chunk
+                if (text.trim().length > 0) {
+                    isContinuationStart = false;
+                }
+            }
+
             generatedCode += text;
             currentFile += text;
             
@@ -1906,8 +1926,9 @@ This ensures imports are properly placed at the top of the file during post-proc
             tagBuffer = searchText.substring(Math.max(0, lastIndex - 50)); // Keep last 50 chars
             
             // Check for file boundaries
-            if (text.includes('<file path="')) {
-              const pathMatch = text.match(/<file path="([^"]+)"/);
+            // 🔥 使用灵活空白正则
+            if (/<file\s+path="/.test(text)) {
+              const pathMatch = text.match(/<file\s+path="([^"]+)"/);
               if (pathMatch) {
                 currentFilePath = pathMatch[1];
                 isInFile = true;
@@ -1953,7 +1974,8 @@ This ensures imports are properly placed at the top of the file during post-proc
 
           if (loopCount < maxLoops) {
             // Check 1: Unclosed file tags (most reliable indicator)
-            const fileOpenCount = (generatedCode.match(/<file path="/g) || []).length;
+            // 🔥 使用灵活空白正则
+            const fileOpenCount = (generatedCode.match(/<file\s+path="/g) || []).length;
             const fileCloseCount = (generatedCode.match(/<\/file>/g) || []).length;
             if (fileOpenCount > fileCloseCount) {
               quickTruncationDetected = true;
@@ -1998,7 +2020,8 @@ This ensures imports are properly placed at the top of the file during post-proc
             // 🔥 Check 4: JSX 内部截断检测（检测未闭合的 JSX 标签）
             if (!quickTruncationDetected && fileOpenCount > 0) {
               // 获取最后一个文件的内容
-              const lastFileMatch = generatedCode.match(/<file path="[^"]+">([^]*?)(?:<\/file>|$)/g);
+              // 🔥 使用灵活空白正则
+              const lastFileMatch = generatedCode.match(/<file\s+path="[^"]+">([^]*?)(?:<\/file>|$)/g);
               if (lastFileMatch) {
                 const lastFileContent = lastFileMatch[lastFileMatch.length - 1];
 
@@ -2115,7 +2138,8 @@ This ensures imports are properly placed at the top of the file during post-proc
         }
         
         // Parse files and send progress for each
-        const fileRegex = /<file path="([^"]+)">([\s\S]*?)<\/file>/g;
+        // 🔥 使用灵活空白正则
+        const fileRegex = /<file\s+path="([^"]+)">([\s\S]*?)<\/file>/g;
         const files = [];
         let match;
         
@@ -2261,14 +2285,16 @@ This ensures imports are properly placed at the top of the file during post-proc
         const truncationWarnings: string[] = [];
         
         // Check for unclosed file tags
-        const fileOpenCount = (generatedCode.match(/<file path="/g) || []).length;
+        // 🔥 使用灵活空白正则
+        const fileOpenCount = (generatedCode.match(/<file\s+path="/g) || []).length;
         const fileCloseCount = (generatedCode.match(/<\/file>/g) || []).length;
         if (fileOpenCount !== fileCloseCount) {
           truncationWarnings.push(`Unclosed file tags detected: ${fileOpenCount} open, ${fileCloseCount} closed`);
         }
         
         // Check for files that seem truncated (very short or ending abruptly)
-        const truncationCheckRegex = /<file path="([^"]+)">([\s\S]*?)(?:<\/file>|$)/g;
+        // 🔥 使用灵活空白正则
+        const truncationCheckRegex = /<file\s+path="([^"]+)">([\s\S]*?)(?:<\/file>|$)/g;
         let truncationMatch;
         while ((truncationMatch = truncationCheckRegex.exec(generatedCode)) !== null) {
           const fullMatch = truncationMatch[0];
@@ -2408,7 +2434,8 @@ This ensures imports are properly placed at the top of the file during post-proc
 
           // Try to fix truncated files automatically
           const truncatedFiles: string[] = [];
-          const fileRegex = /<file path="([^"]+)">([\s\S]*?)(?:<\/file>|$)/g;
+          // 🔥 使用灵活空白正则
+          const fileRegex = /<file\s+path="([^"]+)">([\s\S]*?)(?:<\/file>|$)/g;
           let match;
           
           while ((match = fileRegex.exec(generatedCode)) !== null) {
@@ -2581,7 +2608,8 @@ Provide the complete file content without any truncation. Include all necessary 
 
         // 将补充的 import 应用到对应文件
         if (importFixes.size > 0) {
-          const fileRegex = /<file path="([^"]+)">([\s\S]*?)<\/file>/g;
+          // 🔥 使用灵活空白正则
+          const fileRegex = /<file\s+path="([^"]+)">([\s\S]*?)<\/file>/g;
           generatedCode = generatedCode.replace(fileRegex, (match, filePath, content) => {
             const additionalImports = importFixes.get(filePath);
             if (additionalImports && additionalImports.length > 0) {
@@ -2879,9 +2907,85 @@ async function generateSingleFile(
   model: string,
   modelProvider: any,
   actualModel: string,
-  systemPrompt: string
+  systemPrompt: string,
+  sendProgress?: (data: any) => Promise<void>
 ): Promise<{ path: string; content: string }> {
   console.log(`[generateSingleFile] 开始生成文件: ${manifestItem.path}`);
+
+  /**
+   * 从模型输出中提取单文件内容。
+   *
+   * 兼容常见偏差：
+   * - 未按要求输出 <file> 包裹，改成了 Markdown code block
+   * - 在 <file> 外多输出了说明文字
+   */
+  const extractSingleFileContentFromModelOutput = (output: string, filePath: string): string | null => {
+    if (!output || typeof output !== 'string') return null;
+
+    // 1) 标准 <file path="...">...</file>
+    const fileTagMatches = [
+      output.match(/<file\s+path="[^"]+"\s*>\s*([\s\S]*?)\s*<\/file>/i),
+      output.match(/<file\s+path='[^']+'\s*>\s*([\s\S]*?)\s*<\/file>/i),
+      output.match(/<file[^>]*>\s*([\s\S]*?)\s*<\/file>/i),
+    ];
+    for (const m of fileTagMatches) {
+      if (m && m[1]) return m[1].trim();
+    }
+
+    // 2) Markdown code fence：```jsx ... ```
+    const fenceMatches = [...output.matchAll(/```[a-zA-Z]*\s*([\s\S]*?)```/g)];
+    if (fenceMatches.length > 0) {
+      const best = fenceMatches.reduce((a, b) => (a[1].length >= b[1].length ? a : b));
+      const code = best[1].trim();
+      if (code) return stripNonCodePreamble(code, filePath);
+    }
+
+    // 3) 兜底：去掉可能的围栏并尝试裁剪前导说明
+    const cleaned = output
+      .replace(/```[a-zA-Z]*\s*/g, '')
+      .replace(/```/g, '')
+      .trim();
+
+    if (!cleaned) return null;
+    return stripNonCodePreamble(cleaned, filePath);
+  };
+
+  /**
+   * 尝试移除模型在代码前面输出的自然语言前导（例如 “下面是代码：”）。
+   * 这是启发式处理，只在明显匹配时才裁剪。
+   */
+  const stripNonCodePreamble = (text: string, filePath: string): string => {
+    const ext = (filePath.split('.').pop() || '').toLowerCase();
+    const candidates: Array<{ token: string; index: number }> = [];
+
+    const pushIndex = (token: string) => {
+      const idx = text.indexOf(token);
+      if (idx >= 0) candidates.push({ token, index: idx });
+    };
+
+    if (['js', 'jsx', 'ts', 'tsx'].includes(ext)) {
+      pushIndex('import ');
+      pushIndex('export ');
+      pushIndex('const ');
+      pushIndex('function ');
+      pushIndex('class ');
+      pushIndex('//');
+      pushIndex('/*');
+    } else if (ext === 'css') {
+      pushIndex('@tailwind');
+      pushIndex(':root');
+      pushIndex('body');
+      pushIndex('html');
+      pushIndex('/*');
+    } else if (ext === 'json') {
+      pushIndex('{');
+      pushIndex('[');
+    }
+
+    if (candidates.length === 0) return text.trim();
+    const start = candidates.sort((a, b) => a.index - b.index)[0].index;
+    return start > 0 ? text.slice(start).trim() : text.trim();
+  };
 
   // 获取依赖文件的内容（如果已生成）
   const dependencyContents: string[] = [];
@@ -2897,8 +3001,42 @@ ${depContent.substring(0, 500)}... // 截取前500字符作为参考
     }
   }
 
+  const filePath = manifestItem.path;
+  const fileExt = (filePath.split('.').pop() || '').toLowerCase();
+  const isEntryFile = ['src/main.jsx', 'src/main.tsx', 'src/main.js', 'src/main.ts'].includes(filePath);
+  const isCssFile = ['css', 'scss', 'sass', 'less'].includes(fileExt);
+  const isJsonFile = fileExt === 'json';
+  const requiresDefaultExport =
+    !isEntryFile &&
+    !isCssFile &&
+    !isJsonFile &&
+    (manifestItem.type === 'component' || manifestItem.type === 'page') &&
+    ['js', 'jsx', 'ts', 'tsx'].includes(fileExt);
+
+  const requirementLines: string[] = [
+    `- 只生成 ${filePath} 这一个文件`,
+    `- 输出必须是且仅是一个 <file path="${filePath}">...</file>（标签外不要输出任何文字/Markdown）`,
+    `- 内容必须完整，严禁使用省略号（...）`
+  ];
+
+  if (!isCssFile && !isJsonFile) {
+    requirementLines.push('- 所有 import 必须在文件顶部（如果该文件需要 import）');
+  }
+  if (requiresDefaultExport) {
+    requirementLines.push('- 必须包含 export default');
+  }
+  if (isEntryFile) {
+    requirementLines.push('- 入口文件：使用 ReactDOM.createRoot 挂载 <App />，并引入 ./index.css');
+  }
+  if (isCssFile) {
+    requirementLines.push('- 只输出 CSS（可包含 Tailwind 指令），不要输出 JS/TS');
+  }
+  if (isJsonFile) {
+    requirementLines.push('- 只输出 JSON，必须可被 JSON.parse 解析');
+  }
+
   const filePrompt = `
-生成文件：${manifestItem.path}
+生成文件：${filePath}
 
 文件描述：${manifestItem.description}
 文件类型：${manifestItem.type}
@@ -2912,61 +3050,79 @@ ${dependencyContents.join('\n')}
 ${prompt}
 
 🎯 关键要求：
-1. 只生成 ${manifestItem.path} 这一个文件的完整代码
-2. 所有 import 必须在文件顶部
-3. 代码必须完整，不能有省略（...）
-4. 必须包含 export default
-5. 使用 React + Tailwind CSS
+${requirementLines.join('\n')}
 
 输出格式（严格遵守）：
-<file path="${manifestItem.path}">
+<file path="${filePath}">
 // 完整的文件代码
 </file>`;
 
   try {
-    const result = await streamText({
-      model: modelProvider(actualModel),
-      messages: [
-        {
-          role: 'system',
-          content: systemPrompt + `
+    const generateOnce = async (attempt: number) => {
+      const extraStrict =
+        attempt > 1
+          ? '\n⚠️ 上一次输出未按 <file> 格式返回，本次必须严格按格式输出，否则视为失败。'
+          : '';
+
+      const result = await streamText({
+        model: modelProvider(actualModel),
+        messages: [
+          {
+            role: 'system',
+            content: systemPrompt + `
 
 🔥 单文件生成模式 - 特殊规则：
-1. 只生成一个文件：${manifestItem.path}
-2. 不要生成其他文件
-3. 不要在代码中插入 import 语句
-4. 确保代码完整无截断`
-        },
-        {
-          role: 'user',
-          content: filePrompt
+1. 只生成一个文件：${filePath}
+2. 输出必须是且仅是一个 <file path="${filePath}">...</file>
+3. <file> 标签外不要输出任何文字、说明或 Markdown
+4. 确保代码完整无截断，严禁使用省略号（...）
+5. import 必须在文件顶部（如果该文件需要 import）${extraStrict}`
+          },
+          {
+            role: 'user',
+            content: filePrompt
+          }
+        ],
+        temperature: attempt > 1 ? 0.2 : 0.5,
+      });
+
+      let raw = '';
+      for await (const chunk of result.textStream) {
+        raw += chunk;
+        // 🔥 打字机效果：实时发送代码块给前端
+        if (sendProgress) {
+          await sendProgress({
+            type: 'codeChunk',
+            chunk: chunk,
+            filePath: manifestItem.path
+          });
         }
-      ],
-      temperature: 0.5,
-    });
+      }
+      return raw;
+    };
 
-    let fileContent = '';
-    for await (const chunk of result.textStream) {
-      fileContent += chunk;
+    // 最多尝试 2 次，减少因格式偏差导致的整体失败
+    let fileContent = await generateOnce(1);
+    let content = extractSingleFileContentFromModelOutput(fileContent, filePath);
+    if (!content) {
+      console.warn(`[generateSingleFile] ⚠️ 第一次未能提取内容，尝试重试: ${filePath}`);
+      fileContent = await generateOnce(2);
+      content = extractSingleFileContentFromModelOutput(fileContent, filePath);
     }
 
-    console.log(`[generateSingleFile] ${manifestItem.path} 生成完成，长度: ${fileContent.length}`);
-
-    // 提取文件内容
-    const fileMatch = fileContent.match(/<file[^>]*>([\s\S]*?)<\/file>/);
-    if (!fileMatch) {
-      throw new Error(`无法从输出中提取文件内容。输出: ${fileContent.substring(0, 200)}...`);
+    if (!content) {
+      throw new Error(`无法从输出中提取文件内容。输出: ${fileContent.substring(0, 400)}...`);
     }
 
-    const content = fileMatch[1].trim();
+    console.log(`[generateSingleFile] ${filePath} 生成完成，长度: ${content.length}`);
 
     // 基础验证：检查是否有明显的截断标记
     if (content.includes('...') && !content.includes('// ...')) {
-      console.warn(`[generateSingleFile] ⚠️ 警告：${manifestItem.path} 可能存在截断`);
+      console.warn(`[generateSingleFile] ⚠️ 警告：${filePath} 可能存在截断`);
     }
 
     return {
-      path: manifestItem.path,
+      path: filePath,
       content: content
     };
 
@@ -2974,6 +3130,288 @@ ${prompt}
     console.error(`[generateSingleFile] 生成文件失败: ${manifestItem.path}`, error);
     throw new Error(`文件生成失败 (${manifestItem.path}): ${(error as Error).message}`);
   }
+}
+
+/**
+ * 从技术方案 Markdown 中提取建议的文件清单（manifest）。
+ *
+ * 为什么需要：模型在输出 Markdown 时，JSON 代码块可能出现：
+ * - 代码块不止一个、顺序变化
+ * - JSON 有轻微格式瑕疵（常见：尾逗号）
+ *
+ * 这里做“尽量解析”的本地修复，减少因为解析失败导致的 0 文件问题。
+ */
+function extractSuggestedManifestFromPlan(planContent: string): FileManifestItem[] {
+  const candidates: string[] = [];
+
+  // 1) 优先提取 ```json ... ``` 代码块（可能出现多个）
+  const jsonFenceRegex = /```json\s*([\s\S]*?)\s*```/gi;
+  let match: RegExpExecArray | null;
+  while ((match = jsonFenceRegex.exec(planContent)) !== null) {
+    candidates.push(match[1]);
+  }
+
+  // 2) 兜底：提取所有 ``` ... ``` 代码块，并筛选包含 files 结构的候选
+  const anyFenceRegex = /```\s*([\s\S]*?)\s*```/gi;
+  while ((match = anyFenceRegex.exec(planContent)) !== null) {
+    const block = match[1];
+    if (typeof block === 'string' && block.includes('"files"')) {
+      candidates.push(block);
+    }
+  }
+
+  // 3) 逐个尝试解析，找到第一个有效的 manifest
+  for (const candidate of candidates) {
+    const parsed = tryParseManifestJson(candidate);
+    if (parsed.length > 0) return parsed;
+  }
+
+  return [];
+}
+
+/**
+ * 尝试解析 manifest JSON，并做最小的结构化校验与归一化。
+ */
+function tryParseManifestJson(rawJson: string): FileManifestItem[] {
+  const cleaned = normalizeJsonForParsing(rawJson);
+  try {
+    const parsed = JSON.parse(cleaned);
+    return normalizeManifestFiles(parsed);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * 轻量级 JSON 清理（不引入 JSON5 依赖）：
+ * - 去掉常见尾逗号：`, }` / `, ]`
+ * - 去掉可能残留的代码块围栏
+ */
+function normalizeJsonForParsing(raw: string): string {
+  const trimmed = raw.trim();
+  const withoutFences = trimmed
+    .replace(/^```(?:json)?/i, '')
+    .replace(/```$/i, '')
+    .trim();
+
+  // 尾逗号是模型最常见的 JSON 瑕疵之一
+  return withoutFences.replace(/,(\s*[}\]])/g, '$1');
+}
+
+/**
+ * 把解析结果归一化为 FileManifestItem[]（缺字段则补默认值）。
+ */
+function normalizeManifestFiles(parsed: any): FileManifestItem[] {
+  const rawFiles: any[] = Array.isArray(parsed)
+    ? parsed
+    : Array.isArray(parsed?.files)
+      ? parsed.files
+      : [];
+
+  const allowedTypes = new Set<FileManifestItem['type']>([
+    'component',
+    'page',
+    'api',
+    'lib',
+    'config',
+    'style',
+    'other'
+  ]);
+
+  return rawFiles
+    .filter(item => item && typeof item === 'object' && typeof item.path === 'string' && item.path.trim())
+    .map((item) => ({
+      path: String(item.path).trim(),
+      description: typeof item.description === 'string' ? item.description : '',
+      dependencies: Array.isArray(item.dependencies)
+        ? item.dependencies.filter((d: any) => typeof d === 'string')
+        : [],
+      type: allowedTypes.has(item.type) ? item.type : 'other',
+      estimatedLines: typeof item.estimatedLines === 'number' ? item.estimatedLines : undefined,
+      isCritical: typeof item.isCritical === 'boolean' ? item.isCritical : undefined,
+    }));
+}
+
+/**
+ * 判断是否启用 E2E/离线 Mock 模式。
+ *
+ * 目的：让端到端测试在无外部网络/密钥（E2B、Firecrawl、LLM）时也能跑通。
+ */
+function isE2eMockEnabled(): boolean {
+  return process.env.OPEN_LOVABLE_E2E === '1';
+}
+
+/**
+ * E2E/离线模式下的固定 manifest，用于验证 Plan → Confirm → Code 生成链路。
+ */
+function getE2eMockManifest(): FileManifestItem[] {
+  return [
+    {
+      path: 'src/components/Header.jsx',
+      description: '页面头部组件，包含站点标题与导航',
+      type: 'component',
+      dependencies: [],
+      isCritical: true,
+      estimatedLines: 40,
+    },
+    {
+      path: 'src/App.jsx',
+      description: '应用主入口，组合页面结构',
+      type: 'page',
+      dependencies: ['src/components/Header.jsx'],
+      isCritical: true,
+      estimatedLines: 80,
+    },
+    {
+      path: 'src/index.css',
+      description: '全局样式（用于 Tailwind 指令与基础样式）',
+      type: 'style',
+      dependencies: [],
+      isCritical: false,
+      estimatedLines: 20,
+    }
+  ];
+}
+
+/**
+ * E2E/离线模式下根据文件路径生成固定文件内容。
+ */
+function getE2eMockFileContent(filePath: string): string {
+  if (filePath.endsWith('src/components/Header.jsx')) {
+    return `import React from 'react';
+
+export default function Header() {
+  return (
+    <header className="w-full border-b border-gray-200 bg-white">
+      <div className="mx-auto max-w-5xl px-6 py-4 flex items-center justify-between">
+        <div className="text-lg font-semibold text-gray-900">Open Lovable Mock</div>
+        <nav className="text-sm text-gray-600 flex gap-4">
+          <a href="#" className="hover:text-gray-900">首页</a>
+          <a href="#" className="hover:text-gray-900">关于</a>
+        </nav>
+      </div>
+    </header>
+  );
+}
+`;
+  }
+
+  if (filePath.endsWith('src/App.jsx')) {
+    return `import React from 'react';
+import Header from './components/Header';
+
+export default function App() {
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <Header />
+      <main className="mx-auto max-w-5xl px-6 py-10">
+        <h1 className="text-3xl font-bold text-gray-900 mb-3">代码已成功生成</h1>
+        <p className="text-gray-700">这是用于 E2E 验证的 Mock 页面内容。</p>
+      </main>
+    </div>
+  );
+}
+`;
+  }
+
+  if (filePath.endsWith('src/index.css')) {
+    return `@tailwind base;
+@tailwind components;
+@tailwind utilities;
+`;
+  }
+
+  return `// Mock file: ${filePath}\n`;
+}
+
+/**
+ * E2E/离线 Mock 生成：根据 generation.mode 模拟输出 SSE 事件。
+ *
+ * 注意：该路由名含 "stream"，因此这里统一走 SSE 输出，便于前端复用解析逻辑。
+ */
+async function runE2eMockGeneration(
+  generation: GenerationConfig,
+  sendProgress: (data: any) => Promise<void>
+): Promise<void> {
+  const manifest = getE2eMockManifest();
+
+  if (generation.mode === 'plan') {
+    const planContent = `# 技术实现方案
+
+## 1. 需求分析
+- E2E Mock：验证从 Plan 到代码生成的完整链路
+
+## 4. 文件拆解
+### 文件清单
+\`\`\`json
+{
+  "files": ${JSON.stringify(manifest, null, 2)}
+}
+\`\`\`
+`;
+
+    await sendProgress({ type: 'plan_chunk', chunk: planContent, totalLength: planContent.length });
+    await sendProgress({
+      type: 'plan_complete',
+      plan: {
+        content: planContent,
+        suggestedManifest: manifest,
+        summary: {
+          requirementAnalysis: 'E2E Mock：验证生成流程',
+          techStack: ['React', 'Tailwind CSS'],
+          architecture: '单页应用（Mock）',
+          totalFiles: manifest.length,
+          estimatedTime: 1,
+          risks: []
+        }
+      }
+    });
+    return;
+  }
+
+  if (generation.mode === 'manifest') {
+    await sendProgress({ type: 'manifest_complete', manifest, totalFiles: manifest.length });
+    return;
+  }
+
+  if (generation.mode === 'file') {
+    const totalFiles = Array.isArray(generation.manifest) && generation.manifest.length > 0
+      ? generation.manifest.length
+      : manifest.length;
+    const fileIndex = typeof generation.fileIndex === 'number' ? generation.fileIndex : 0;
+
+    const selected = Array.isArray(generation.manifest) && generation.manifest[fileIndex]
+      ? generation.manifest[fileIndex]
+      : manifest[Math.min(fileIndex, manifest.length - 1)];
+
+    const progress = totalFiles > 0 ? Math.round(((fileIndex + 1) / totalFiles) * 100) : 100;
+    const isComplete = fileIndex >= totalFiles - 1;
+
+    await sendProgress({
+      type: 'file_complete',
+      fileIndex,
+      totalFiles,
+      file: {
+        path: selected.path,
+        content: getE2eMockFileContent(selected.path),
+      },
+      progress,
+      isComplete
+    });
+    return;
+  }
+
+  // full 模式：输出 <file> 标签格式，兼容旧的前端解析逻辑
+  const generatedCode = manifest
+    .map((f) => `<file path="${f.path}">\n${getE2eMockFileContent(f.path)}\n</file>`)
+    .join('\n\n');
+
+  await sendProgress({ type: 'stream', raw: true, text: generatedCode });
+  await sendProgress({
+    type: 'complete',
+    generatedCode,
+    explanation: 'E2E Mock：已生成固定文件集合'
+  });
 }
 
 /**
@@ -3112,18 +3550,23 @@ ${Object.keys(context.currentFiles).length > 20 ? `... 共 ${Object.keys(context
 
     console.log(`[generatePlan] 方案生成完成，长度: ${planContent.length}`);
 
-    // 提取文件清单 JSON
-    const jsonMatch = planContent.match(/```json\s*([\s\S]*?)\s*```/);
-    let suggestedManifest: FileManifestItem[] = [];
+    // 从方案中提取文件清单（必要时兜底单独生成）
+    await sendProgress({ type: 'status', message: '正在从方案中提取文件清单...' });
+    let suggestedManifest: FileManifestItem[] = extractSuggestedManifestFromPlan(planContent);
 
-    if (jsonMatch) {
+    if (suggestedManifest.length === 0) {
+      console.warn('[generatePlan] ⚠️ 未能从方案中解析出文件清单，尝试单独生成 manifest 兜底...');
+      await sendProgress({ type: 'status', message: '方案已生成，正在补全文件清单...' });
       try {
-        const manifestData = JSON.parse(jsonMatch[1]);
-        if (manifestData.files && Array.isArray(manifestData.files)) {
-          suggestedManifest = manifestData.files;
-        }
+        suggestedManifest = await generateManifest(
+          prompt,
+          context,
+          model,
+          modelProvider,
+          actualModel
+        );
       } catch (error) {
-        console.warn('[generatePlan] 无法解析 manifest JSON:', error);
+        console.warn('[generatePlan] 兜底 manifest 生成失败:', error);
       }
     }
 

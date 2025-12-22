@@ -63,3 +63,6 @@ storage/
 
 # Claude local settings
 .claude/*.local.json
+
+# NPM cache
+.npm-cache/

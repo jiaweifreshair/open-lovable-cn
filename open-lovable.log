@@ -1,0 +1,445 @@
+
+> open-lovable@0.1.0 dev /Users/apus/Documents/UGit/open-lovable-cn
+> next dev --turbopack
+
+ ⚠ Warning: Found multiple lockfiles. Selecting /Users/apus/pnpm-lock.yaml.
+   Consider removing the lockfiles at:
+   * /Users/apus/Documents/UGit/open-lovable-cn/pnpm-lock.yaml
+
+   ▲ Next.js 15.4.3 (Turbopack)
+   - Local:        http://localhost:3001
+   - Network:      http://192.168.1.16:3001
+   - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Compiled instrumentation Node.js in 101ms
+ ✓ Compiled instrumentation Edge in 13ms
+[Instrumentation] Configuring undici global proxy: http://127.0.0.1:7897
+[Instrumentation] NO_PROXY domains: .e2b.app, .e2b.dev, api.e2b.dev, localhost, 127.0.0.1, cs.imds.ai, api.qnaigc.com
+[Instrumentation] Smart proxy configured successfully (E2B domains bypassed)
+ ✓ Ready in 1109ms
+ ○ Compiling /api/sandbox-heartbeat ...
+ ✓ Compiled /api/sandbox-heartbeat in 1022ms
+[SandboxManager] Creating new singleton instance
+[HeartbeatManager] Starting heartbeat checker...
+[HeartbeatManager] Heartbeat checker started (interval: 60000ms, timeout: 1800000ms)
+[HeartbeatManager] ✅ New sandbox registered: ie2ugikk70p7e1qe2n1dz
+ POST /api/sandbox-heartbeat 200 in 1203ms
+ ○ Compiling / ...
+ ✓ Compiled / in 5.5s
+ ⨯ [next]/internal/font/google/inter_9e72d27f.module.css:8:9
+Module not found: Can't resolve '@vercel/turbopack-next/internal/font/google/font'
+[0m [90m  6 |[39m   font[33m-[39mdisplay[33m:[39m swap[33m;[39m
+ [90m  7 |[39m   src[33m:[39m url([33m@[39mvercel[33m/[39mturbopack[33m-[39mnext[33m/[39minternal[33m/[39mfont[33m/[39mgoogle[35m/font?{%22url%22:%22https:/[39m[33m/[39mfonts[33m.[39mgstatic[33m.[39mcom[33m/[39ms[33m/[39minter[33m/[39mv20[33m/[39m[33mUcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2JL7W0Q5n[39m[33m-[39mwU[33m.[39mwoff2[33m%[39m[35m22[39m[33m,[39m[33m%[39m[35m22[39mpreload[33m%[39m[35m22[39m[33m:[39m[36mfalse[39m[33m,[39m[33m%[39m[35m22[39mhas_size_adjust[33m%[39m[35m22[39m[33m:[39m[36mtrue[39m}) format([32m'woff2'[39m)[33m;[39m
+[31m[1m>[22m[39m[90m  8 |[39m   unicode[33m-[39mrange[33m:[39m [33mU[39m[33m+[39m[35m0460[39m[33m-[39m[35m052[39m[33mF[39m[33m,[39m [33mU[39m[33m+[39m[35m1[39m[33mC80[39m[33m-[39m[35m1[39m[33mC8A[39m[33m,[39m [33mU[39m[33m+[39m[35m20[39m[33mB4[39m[33m,[39m [33mU[39m[33m+[39m[35m2[39m[33mDE0[39m[33m-[39m[35m2[39m[33mDFF[39m[33m,[39m [33mU[39m[33m+[39m[33mA640[39m[33m-[39m[33mA69F[39m[33m,[39m [33mU[39m[33m+[39m[33mFE2E[39m[33m-[39m[33mFE2F[39m[33m;[39m
+ [90m    |[39m         [31m[1m^[22m[39m
+ [90m  9 |[39m }
+ [90m 10 |[39m [90m/* cyrillic */[39m
+ [90m 11 |[39m [33m@[39mfont[33m-[39mface {[0m
+
+Import map: Resolved by import map
+
+
+Import trace:
+  [next]/internal/font/google/inter_9e72d27f.module.css
+  [next]/internal/font/google/inter_9e72d27f.js
+  ./app/layout.tsx
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+ ⚠ [next]/internal/font/google/2a2d10660758e7fa-s.woff2
+Error while requesting resource
+There was an issue establishing a connection while requesting https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2JL7W0Q5n-wU.woff2.
+
+
+ ○ Compiling /_error ...
+ ✓ Compiled /_error in 831ms
+ GET / 500 in 6482ms
+ ⚠ [next]/internal/font/google/2a2d10660758e7fa-s.woff2
+Error while requesting resource
+There was an issue establishing a connection while requesting https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2JL7W0Q5n-wU.woff2.
+
+
+ ✓ Compiled /favicon.ico in 142ms
+ ⚠ [next]/internal/font/google/2a2d10660758e7fa-s.woff2
+Error while requesting resource
+There was an issue establishing a connection while requesting https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2JL7W0Q5n-wU.woff2.
+
+
+ GET /favicon.ico 500 in 155ms
+[HeartbeatManager] 💓 Heartbeat received: ie2ugikk70p7e1qe2n1dz
+ POST /api/sandbox-heartbeat 200 in 43ms
+[HeartbeatManager] 📊 Status: 1 active, 0 cleaned up
+ ⨯ [next]/internal/font/google/inter_9e72d27f.module.css:8:9
+Module not found: Can't resolve '@vercel/turbopack-next/internal/font/google/font'
+[0m [90m  6 |[39m   font[33m-[39mdisplay[33m:[39m swap[33m;[39m
+ [90m  7 |[39m   src[33m:[39m url([33m@[39mvercel[33m/[39mturbopack[33m-[39mnext[33m/[39minternal[33m/[39mfont[33m/[39mgoogle[35m/font?{%22url%22:%22https:/[39m[33m/[39mfonts[33m.[39mgstatic[33m.[39mcom[33m/[39ms[33m/[39minter[33m/[39mv20[33m/[39m[33mUcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2JL7W0Q5n[39m[33m-[39mwU[33m.[39mwoff2[33m%[39m[35m22[39m[33m,[39m[33m%[39m[35m22[39mpreload[33m%[39m[35m22[39m[33m:[39m[36mfalse[39m[33m,[39m[33m%[39m[35m22[39mhas_size_adjust[33m%[39m[35m22[39m[33m:[39m[36mtrue[39m}) format([32m'woff2'[39m)[33m;[39m
+[31m[1m>[22m[39m[90m  8 |[39m   unicode[33m-[39mrange[33m:[39m [33mU[39m[33m+[39m[35m0460[39m[33m-[39m[35m052[39m[33mF[39m[33m,[39m [33mU[39m[33m+[39m[35m1[39m[33mC80[39m[33m-[39m[35m1[39m[33mC8A[39m[33m,[39m [33mU[39m[33m+[39m[35m20[39m[33mB4[39m[33m,[39m [33mU[39m[33m+[39m[35m2[39m[33mDE0[39m[33m-[39m[35m2[39m[33mDFF[39m[33m,[39m [33mU[39m[33m+[39m[33mA640[39m[33m-[39m[33mA69F[39m[33m,[39m [33mU[39m[33m+[39m[33mFE2E[39m[33m-[39m[33mFE2F[39m[33m;[39m
+ [90m    |[39m         [31m[1m^[22m[39m
+ [90m  9 |[39m }
+ [90m 10 |[39m [90m/* cyrillic */[39m
+ [90m 11 |[39m [33m@[39mfont[33m-[39mface {[0m
+
+Import map: Resolved by import map
+
+
+Import trace:
+  [next]/internal/font/google/inter_9e72d27f.module.css
+  [next]/internal/font/google/inter_9e72d27f.js
+  ./app/layout.tsx
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+ ⚠ [next]/internal/font/google/2a2d10660758e7fa-s.woff2
+Error while requesting resource
+There was an issue establishing a connection while requesting https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2JL7W0Q5n-wU.woff2.
+
+
+ GET / 500 in 59ms
+ ⚠ [next]/internal/font/google/2a2d10660758e7fa-s.woff2
+Error while requesting resource
+There was an issue establishing a connection while requesting https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2JL7W0Q5n-wU.woff2.
+
+
+ ⚠ [next]/internal/font/google/2a2d10660758e7fa-s.woff2
+Error while requesting resource
+There was an issue establishing a connection while requesting https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2JL7W0Q5n-wU.woff2.
+
+
+ GET /favicon.ico 500 in 40ms
+ ⨯ [next]/internal/font/google/inter_9e72d27f.module.css:8:9
+Module not found: Can't resolve '@vercel/turbopack-next/internal/font/google/font'
+[0m [90m  6 |[39m   font[33m-[39mdisplay[33m:[39m swap[33m;[39m
+ [90m  7 |[39m   src[33m:[39m url([33m@[39mvercel[33m/[39mturbopack[33m-[39mnext[33m/[39minternal[33m/[39mfont[33m/[39mgoogle[35m/font?{%22url%22:%22https:/[39m[33m/[39mfonts[33m.[39mgstatic[33m.[39mcom[33m/[39ms[33m/[39minter[33m/[39mv20[33m/[39m[33mUcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2JL7W0Q5n[39m[33m-[39mwU[33m.[39mwoff2[33m%[39m[35m22[39m[33m,[39m[33m%[39m[35m22[39mpreload[33m%[39m[35m22[39m[33m:[39m[36mfalse[39m[33m,[39m[33m%[39m[35m22[39mhas_size_adjust[33m%[39m[35m22[39m[33m:[39m[36mtrue[39m}) format([32m'woff2'[39m)[33m;[39m
+[31m[1m>[22m[39m[90m  8 |[39m   unicode[33m-[39mrange[33m:[39m [33mU[39m[33m+[39m[35m0460[39m[33m-[39m[35m052[39m[33mF[39m[33m,[39m [33mU[39m[33m+[39m[35m1[39m[33mC80[39m[33m-[39m[35m1[39m[33mC8A[39m[33m,[39m [33mU[39m[33m+[39m[35m20[39m[33mB4[39m[33m,[39m [33mU[39m[33m+[39m[35m2[39m[33mDE0[39m[33m-[39m[35m2[39m[33mDFF[39m[33m,[39m [33mU[39m[33m+[39m[33mA640[39m[33m-[39m[33mA69F[39m[33m,[39m [33mU[39m[33m+[39m[33mFE2E[39m[33m-[39m[33mFE2F[39m[33m;[39m
+ [90m    |[39m         [31m[1m^[22m[39m
+ [90m  9 |[39m }
+ [90m 10 |[39m [90m/* cyrillic */[39m
+ [90m 11 |[39m [33m@[39mfont[33m-[39mface {[0m
+
+Import map: Resolved by import map
+
+
+Import trace:
+  [next]/internal/font/google/inter_9e72d27f.module.css
+  [next]/internal/font/google/inter_9e72d27f.js
+  ./app/layout.tsx
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+ ⚠ [next]/internal/font/google/2a2d10660758e7fa-s.woff2
+Error while requesting resource
+There was an issue establishing a connection while requesting https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2JL7W0Q5n-wU.woff2.
+
+
+ GET / 500 in 58ms
+ ⚠ [next]/internal/font/google/2a2d10660758e7fa-s.woff2
+Error while requesting resource
+There was an issue establishing a connection while requesting https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2JL7W0Q5n-wU.woff2.
+
+
+ ⚠ [next]/internal/font/google/2a2d10660758e7fa-s.woff2
+Error while requesting resource
+There was an issue establishing a connection while requesting https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2JL7W0Q5n-wU.woff2.
+
+
+ GET /favicon.ico 500 in 31ms
+[HeartbeatManager] 💓 Heartbeat received: ie2ugikk70p7e1qe2n1dz
+ POST /api/sandbox-heartbeat 200 in 94ms
+[HeartbeatManager] 📊 Status: 1 active, 0 cleaned up
+[HeartbeatManager] 💓 Heartbeat received: ie2ugikk70p7e1qe2n1dz
+ POST /api/sandbox-heartbeat 200 in 111ms
+[HeartbeatManager] 📊 Status: 1 active, 0 cleaned up
+[HeartbeatManager] 💓 Heartbeat received: ie2ugikk70p7e1qe2n1dz
+ POST /api/sandbox-heartbeat 200 in 120ms
+[HeartbeatManager] 📊 Status: 1 active, 0 cleaned up
+[HeartbeatManager] 💓 Heartbeat received: ie2ugikk70p7e1qe2n1dz
+ POST /api/sandbox-heartbeat 200 in 58ms
+[HeartbeatManager] 📊 Status: 1 active, 0 cleaned up
+[HeartbeatManager] 💓 Heartbeat received: ie2ugikk70p7e1qe2n1dz
+ POST /api/sandbox-heartbeat 200 in 66ms
+[HeartbeatManager] 📊 Status: 1 active, 0 cleaned up
+[HeartbeatManager] 💓 Heartbeat received: ie2ugikk70p7e1qe2n1dz
+ POST /api/sandbox-heartbeat 200 in 50ms
+[HeartbeatManager] 📊 Status: 1 active, 0 cleaned up
+[HeartbeatManager] 💓 Heartbeat received: ie2ugikk70p7e1qe2n1dz
+ POST /api/sandbox-heartbeat 200 in 102ms
+[HeartbeatManager] 📊 Status: 1 active, 0 cleaned up
+[HeartbeatManager] 💓 Heartbeat received: ie2ugikk70p7e1qe2n1dz
+ POST /api/sandbox-heartbeat 200 in 57ms
+[HeartbeatManager] 📊 Status: 1 active, 0 cleaned up
+ ⨯ [Error: ENOENT: no such file or directory, open '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/app/api/sandbox-heartbeat/[__metadata_id__]/route/app-paths-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/app/api/sandbox-heartbeat/[__metadata_id__]/route/app-paths-manifest.json'
+}
+ ⚠ [next]/internal/font/google/2a2d10660758e7fa-s.woff2
+Error while requesting resource
+There was an issue establishing a connection while requesting https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2JL7W0Q5n-wU.woff2.
+
+
+[Error: ENOENT: no such file or directory, open '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/app/api/sandbox-heartbeat/[__metadata_id__]/route/app-paths-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/app/api/sandbox-heartbeat/[__metadata_id__]/route/app-paths-manifest.json'
+}
+ ⚠ [next]/internal/font/google/2a2d10660758e7fa-s.woff2
+Error while requesting resource
+There was an issue establishing a connection while requesting https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2JL7W0Q5n-wU.woff2.
+
+
+[Error: ENOENT: no such file or directory, open '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/pages/_app/build-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/pages/_app/build-manifest.json'
+}
+[HeartbeatManager] 📊 Status: 1 active, 0 cleaned up
+ ⨯ [Error: ENOENT: no such file or directory, open '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/app/api/sandbox-heartbeat/[__metadata_id__]/route/app-paths-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/app/api/sandbox-heartbeat/[__metadata_id__]/route/app-paths-manifest.json'
+}
+ ⚠ [next]/internal/font/google/2a2d10660758e7fa-s.woff2
+Error while requesting resource
+There was an issue establishing a connection while requesting https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2JL7W0Q5n-wU.woff2.
+
+
+[Error: ENOENT: no such file or directory, open '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/app/api/sandbox-heartbeat/[__metadata_id__]/route/app-paths-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/app/api/sandbox-heartbeat/[__metadata_id__]/route/app-paths-manifest.json'
+}
+ ⚠ [next]/internal/font/google/2a2d10660758e7fa-s.woff2
+Error while requesting resource
+There was an issue establishing a connection while requesting https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2JL7W0Q5n-wU.woff2.
+
+
+[Error: ENOENT: no such file or directory, open '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/pages/_app/build-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/pages/_app/build-manifest.json'
+}
+[HeartbeatManager] 📊 Status: 1 active, 0 cleaned up
+ ⨯ [Error: ENOENT: no such file or directory, open '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/app/api/sandbox-heartbeat/[__metadata_id__]/route/app-paths-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/app/api/sandbox-heartbeat/[__metadata_id__]/route/app-paths-manifest.json'
+}
+ ⚠ [next]/internal/font/google/2a2d10660758e7fa-s.woff2
+Error while requesting resource
+There was an issue establishing a connection while requesting https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2JL7W0Q5n-wU.woff2.
+
+
+[Error: ENOENT: no such file or directory, open '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/app/api/sandbox-heartbeat/[__metadata_id__]/route/app-paths-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/app/api/sandbox-heartbeat/[__metadata_id__]/route/app-paths-manifest.json'
+}
+ ⚠ [next]/internal/font/google/2a2d10660758e7fa-s.woff2
+Error while requesting resource
+There was an issue establishing a connection while requesting https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2JL7W0Q5n-wU.woff2.
+
+
+[Error: ENOENT: no such file or directory, open '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/pages/_app/build-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/pages/_app/build-manifest.json'
+}
+[HeartbeatManager] 📊 Status: 1 active, 0 cleaned up
+ ⨯ [Error: ENOENT: no such file or directory, open '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/app/api/sandbox-heartbeat/[__metadata_id__]/route/app-paths-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/app/api/sandbox-heartbeat/[__metadata_id__]/route/app-paths-manifest.json'
+}
+ ⚠ [next]/internal/font/google/2a2d10660758e7fa-s.woff2
+Error while requesting resource
+There was an issue establishing a connection while requesting https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2JL7W0Q5n-wU.woff2.
+
+
+[Error: ENOENT: no such file or directory, open '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/app/api/sandbox-heartbeat/[__metadata_id__]/route/app-paths-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/app/api/sandbox-heartbeat/[__metadata_id__]/route/app-paths-manifest.json'
+}
+ ⚠ [next]/internal/font/google/2a2d10660758e7fa-s.woff2
+Error while requesting resource
+There was an issue establishing a connection while requesting https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2JL7W0Q5n-wU.woff2.
+
+
+[Error: ENOENT: no such file or directory, open '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/pages/_app/build-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/pages/_app/build-manifest.json'
+}
+[HeartbeatManager] 📊 Status: 1 active, 0 cleaned up
+ ⨯ [Error: ENOENT: no such file or directory, open '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/app/api/sandbox-heartbeat/[__metadata_id__]/route/app-paths-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/app/api/sandbox-heartbeat/[__metadata_id__]/route/app-paths-manifest.json'
+}
+ ⚠ [next]/internal/font/google/2a2d10660758e7fa-s.woff2
+Error while requesting resource
+There was an issue establishing a connection while requesting https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2JL7W0Q5n-wU.woff2.
+
+
+[Error: ENOENT: no such file or directory, open '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/app/api/sandbox-heartbeat/[__metadata_id__]/route/app-paths-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/app/api/sandbox-heartbeat/[__metadata_id__]/route/app-paths-manifest.json'
+}
+ ⚠ [next]/internal/font/google/2a2d10660758e7fa-s.woff2
+Error while requesting resource
+There was an issue establishing a connection while requesting https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2JL7W0Q5n-wU.woff2.
+
+
+[Error: ENOENT: no such file or directory, open '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/pages/_app/build-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/pages/_app/build-manifest.json'
+}
+[HeartbeatManager] 📊 Status: 1 active, 0 cleaned up
+ ⨯ [Error: ENOENT: no such file or directory, open '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/app/page/app-build-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/app/page/app-build-manifest.json'
+}
+ ⚠ [next]/internal/font/google/2a2d10660758e7fa-s.woff2
+Error while requesting resource
+There was an issue establishing a connection while requesting https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2JL7W0Q5n-wU.woff2.
+
+
+[Error: ENOENT: no such file or directory, open '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/app/page/app-build-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/app/page/app-build-manifest.json'
+}
+ ⚠ [next]/internal/font/google/2a2d10660758e7fa-s.woff2
+Error while requesting resource
+There was an issue establishing a connection while requesting https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2JL7W0Q5n-wU.woff2.
+
+
+[Error: ENOENT: no such file or directory, open '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/pages/_app/build-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/pages/_app/build-manifest.json'
+}
+ ⨯ [Error: ENOENT: no such file or directory, open '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/app/favicon.ico/[__metadata_id__]/route/app-paths-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/app/favicon.ico/[__metadata_id__]/route/app-paths-manifest.json'
+}
+ ⨯ [Error: ENOENT: no such file or directory, open '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/app/page/app-build-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/app/page/app-build-manifest.json'
+}
+ ⚠ [next]/internal/font/google/2a2d10660758e7fa-s.woff2
+Error while requesting resource
+There was an issue establishing a connection while requesting https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2JL7W0Q5n-wU.woff2.
+
+
+[Error: ENOENT: no such file or directory, open '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/app/page/app-build-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/app/page/app-build-manifest.json'
+}
+ ⚠ [next]/internal/font/google/2a2d10660758e7fa-s.woff2
+Error while requesting resource
+There was an issue establishing a connection while requesting https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2JL7W0Q5n-wU.woff2.
+
+
+[Error: ENOENT: no such file or directory, open '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/pages/_app/build-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/pages/_app/build-manifest.json'
+}
+ ⨯ [Error: ENOENT: no such file or directory, open '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/app/favicon.ico/[__metadata_id__]/route/app-paths-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/app/favicon.ico/[__metadata_id__]/route/app-paths-manifest.json'
+}
+ ⨯ [Error: ENOENT: no such file or directory, open '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/app/api/sandbox-heartbeat/[__metadata_id__]/route/app-paths-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/app/api/sandbox-heartbeat/[__metadata_id__]/route/app-paths-manifest.json'
+}
+ ⚠ [next]/internal/font/google/2a2d10660758e7fa-s.woff2
+Error while requesting resource
+There was an issue establishing a connection while requesting https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2JL7W0Q5n-wU.woff2.
+
+
+[Error: ENOENT: no such file or directory, open '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/app/api/sandbox-heartbeat/[__metadata_id__]/route/app-paths-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/app/api/sandbox-heartbeat/[__metadata_id__]/route/app-paths-manifest.json'
+}
+ ⚠ [next]/internal/font/google/2a2d10660758e7fa-s.woff2
+Error while requesting resource
+There was an issue establishing a connection while requesting https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2JL7W0Q5n-wU.woff2.
+
+
+[Error: ENOENT: no such file or directory, open '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/pages/_app/build-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/pages/_app/build-manifest.json'
+}
+[HeartbeatManager] 📊 Status: 1 active, 0 cleaned up
+ ⨯ [Error: ENOENT: no such file or directory, open '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/app/api/sandbox-heartbeat/[__metadata_id__]/route/app-paths-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/app/api/sandbox-heartbeat/[__metadata_id__]/route/app-paths-manifest.json'
+}
+ ⚠ [next]/internal/font/google/2a2d10660758e7fa-s.woff2
+Error while requesting resource
+There was an issue establishing a connection while requesting https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2JL7W0Q5n-wU.woff2.
+
+
+[Error: ENOENT: no such file or directory, open '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/app/api/sandbox-heartbeat/[__metadata_id__]/route/app-paths-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/app/api/sandbox-heartbeat/[__metadata_id__]/route/app-paths-manifest.json'
+}
+ ⚠ [next]/internal/font/google/2a2d10660758e7fa-s.woff2
+Error while requesting resource
+There was an issue establishing a connection while requesting https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2JL7W0Q5n-wU.woff2.
+
+
+[Error: ENOENT: no such file or directory, open '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/pages/_app/build-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/Users/apus/Documents/UGit/open-lovable-cn/.next/server/pages/_app/build-manifest.json'
+}
+[HeartbeatManager] 📊 Status: 1 active, 0 cleaned up
+[?25h

@@ -50,8 +50,8 @@ export const appConfig = {
   
   // AI Model Configuration
   ai: {
-    // Default AI model - 优先使用国外模型，Claude Sonnet 4 作为默认
-    defaultModel: 'anthropic/claude-sonnet-4-20250514',
+    // Default AI model - 使用 Gemini 3 Pro Preview (cs.imds.ai 代理)
+    defaultModel: 'gemini-3-pro-preview',
 
     // Available models - 国外模型优先，国内模型作为后备
     availableModels: [

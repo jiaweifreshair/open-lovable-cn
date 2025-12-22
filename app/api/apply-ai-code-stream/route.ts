@@ -4,6 +4,14 @@ import { parseMorphEdits, applyMorphEditToFile } from '@/lib/morph-fast-apply';
 import type { SandboxState } from '@/types/sandbox';
 import type { ConversationState } from '@/types/conversation';
 import { sandboxManager } from '@/lib/sandbox/sandbox-manager';
+// 🔥 引入修复引擎 - 用于清理截断续写时混入的问题
+import {
+  detectAndCleanMixedChineseText,
+  fixMisplacedImports,
+  normalizeXmlTags,
+  repairBrokenXmlTags,
+  inferFileBoundaries
+} from '@/lib/multi-turn-fix-engine';
 
 declare global {
   var conversationState: ConversationState | null;
@@ -30,6 +38,16 @@ function parseAIResponse(response: string): ParsedResponse {
     explanation: '',
     template: ''
   };
+
+  // 🔥 STEP 0: 预处理规范化 XML 标签
+  let normalizedResponse = normalizeXmlTags(response);
+
+  // 🔥 STEP 0.5: 修复断裂的标签
+  const { repaired, issues: repairIssues } = repairBrokenXmlTags(normalizedResponse);
+  if (repairIssues.length > 0) {
+    console.log(`[apply-ai-code-stream] 修复了 ${repairIssues.length} 个标签问题:`, repairIssues);
+  }
+  normalizedResponse = repaired;
 
   // Function to extract packages from import statements
   function extractPackagesFromCode(content: string): string[] {
@@ -67,12 +85,13 @@ function parseAIResponse(response: string): ParsedResponse {
   const fileMap = new Map<string, { content: string; isComplete: boolean }>();
 
   // First pass: Find all file declarations
-  const fileRegex = /<file path="([^"]+)">([\s\S]*?)(?:<\/file>|$)/g;
+  // 🔥 改进：使用 \s+ 支持灵活空白，使用预处理后的 normalizedResponse
+  const fileRegex = /<file\s+path="([^"]+)">([\s\S]*?)(?:<\/file>|$)/g;
   let match;
-  while ((match = fileRegex.exec(response)) !== null) {
+  while ((match = fileRegex.exec(normalizedResponse)) !== null) {
     const filePath = match[1];
     const content = match[2].trim();
-    const hasClosingTag = response.substring(match.index, match.index + match[0].length).includes('</file>');
+    const hasClosingTag = normalizedResponse.substring(match.index, match.index + match[0].length).includes('</file>');
 
     // Check if this file already exists in our map
     const existing = fileMap.get(filePath);
@@ -279,6 +298,16 @@ function parseAIResponse(response: string): ParsedResponse {
   const templResult = response.match(templateMatch);
   if (templResult) {
     sections.template = templResult[1].trim();
+  }
+
+  // 🔥 STEP 最后: 如果没有解析到任何文件，尝试从无标签内容推断
+  if (sections.files.length === 0) {
+    console.log('[apply-ai-code-stream] 未能从标签中提取文件，尝试推断文件边界...');
+    const inferredFiles = inferFileBoundaries(response);
+    if (inferredFiles.length > 0) {
+      console.log(`[apply-ai-code-stream] 从无标签内容中推断出 ${inferredFiles.length} 个文件`);
+      sections.files = inferredFiles;
+    }
   }
 
   return sections;
@@ -688,6 +717,23 @@ export async function POST(request: NextRequest) {
             let fileContent = file.content;
             if (file.path.endsWith('.jsx') || file.path.endsWith('.js') || file.path.endsWith('.tsx') || file.path.endsWith('.ts')) {
               fileContent = fileContent.replace(/import\s+['"]\.\/[^'"]+\.css['"];?\s*\n?/g, '');
+
+              // 🔥 修复1: 清理中文文本混入（截断续写常见问题）
+              const { cleaned: cleanedContent, issues: chineseIssues } = detectAndCleanMixedChineseText(fileContent);
+              if (chineseIssues.length > 0) {
+                console.log(`[apply-ai-code-stream] 🧹 清理了 ${normalizedPath} 中的 ${chineseIssues.length} 处中文文本混入`);
+                chineseIssues.forEach(issue => {
+                  console.log(`  - 行 ${issue.line}: "${issue.chineseText}" -> "${issue.cleanedLine.substring(0, 50)}..."`);
+                });
+                fileContent = cleanedContent;
+              }
+
+              // 🔥 修复2: 修复错位的import语句
+              const { fixed: fixedContent, fixedCount } = fixMisplacedImports(fileContent);
+              if (fixedCount > 0) {
+                console.log(`[apply-ai-code-stream] 🔧 修复了 ${normalizedPath} 中的 ${fixedCount} 个错位 import`);
+                fileContent = fixedContent;
+              }
             }
 
             // Fix common Tailwind CSS errors in CSS files

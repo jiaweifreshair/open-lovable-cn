@@ -3,6 +3,7 @@ import { SandboxFactory } from '@/lib/sandbox/factory';
 // SandboxProvider type is used through SandboxFactory
 import type { SandboxState } from '@/types/sandbox';
 import { sandboxManager } from '@/lib/sandbox/sandbox-manager';
+import { heartbeatManager } from '@/lib/sandbox/heartbeat-manager';
 
 // Store active sandbox globally
 declare global {
@@ -14,6 +15,17 @@ declare global {
 
 export async function POST() {
   try {
+    // ✅ E2E/离线测试模式：跳过真实沙箱创建（避免依赖外部 E2B/Vercel 服务）
+    if (process.env.OPEN_LOVABLE_E2E === '1') {
+      return NextResponse.json({
+        success: true,
+        sandboxId: 'mock-sandbox',
+        url: 'about:blank',
+        provider: 'mock',
+        message: 'Mock sandbox created (OPEN_LOVABLE_E2E=1)'
+      });
+    }
+
     console.log('[create-ai-sandbox-v2] Creating sandbox...');
     
     // Clean up all existing sandboxes
@@ -46,6 +58,9 @@ export async function POST() {
     
     // Register with sandbox manager
     sandboxManager.registerSandbox(sandboxInfo.sandboxId, provider);
+    
+    // Register with heartbeat manager immediately
+    heartbeatManager.recordHeartbeat(sandboxInfo.sandboxId);
     
     // Also store in legacy global state for backward compatibility
     global.activeSandboxProvider = provider;
