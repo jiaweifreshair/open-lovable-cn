@@ -352,7 +352,8 @@ const themeConfig: Config = {
 
             return {
               width: value,
-              left: `calc(50% - ${width / 2}px)`
+              left: `calc(50% - ${width / 2}px)`,
+              position: 'absolute'
             };
           },
           'ch': (value: string) => {
@@ -360,7 +361,8 @@ const themeConfig: Config = {
 
             return {
               height: value,
-              top: `calc(50% - ${height / 2}px)`
+              top: `calc(50% - ${height / 2}px)`,
+              position: 'absolute'
             };
           },
           'cs': (value: string) => {
@@ -370,7 +372,8 @@ const themeConfig: Config = {
               width: size,
               height: size,
               left: `calc(50% - ${size / 2}px)`,
-              top: `calc(50% - ${size / 2}px)`
+              top: `calc(50% - ${size / 2}px)`,
+              position: 'absolute'
             };
           },
           'cmw': (value: string) => {
@@ -381,7 +384,8 @@ const themeConfig: Config = {
             return {
               maxWidth: maxWidth,
               width,
-              left: `calc(50% - (min(${maxWidth}px, ${width}) / 2))`
+              left: `calc(50% - (min(${maxWidth}px, ${width}) / 2))`,
+              position: 'absolute'
             };
           },
           'mw': (value: string) => {
