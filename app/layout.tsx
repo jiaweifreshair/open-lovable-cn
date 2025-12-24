@@ -5,8 +5,8 @@ import './globals.css';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: '情绪小帮手',
-  description: '一个帮助同学记录心情并获得安慰的小应用',
+  title: 'Lovable中文',
+  description: 'AI驱动的网站克隆工具，秒级重新构想任何网站',
 };
 
 export default function RootLayout({

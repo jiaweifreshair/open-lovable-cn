@@ -250,7 +250,7 @@ export default function HomePage() {
           </div>
 
           {/* Mini Playground Input */}
-          <div className="container !p-16 relative -mt-90">
+          <div className="container !p-16 relative -mt-90 z-50">
             <div className="absolute top-0 left-[calc(50%-50vw)] w-screen h-1 bg-border-faint lg:hidden" />
             <div className="absolute bottom-0 left-[calc(50%-50vw)] w-screen h-1 bg-border-faint lg:hidden" />
             <Connector className="-top-10 -left-[10.5px] lg:hidden" />
@@ -259,7 +259,7 @@ export default function HomePage() {
             <Connector className="-bottom-10 -right-[10.5px] lg:hidden" />
 
             {/* Hero Input Component */}
-            <div className="max-w-552 mx-auto z-[11] lg:z-[2]">
+            <div className="max-w-552 mx-auto z-[11] lg:z-[50]">
               <div className="rounded-20 -mt-30 lg:-mt-30">
                 <div
                   className="bg-white rounded-20"
@@ -471,6 +471,49 @@ export default function HomePage() {
             </div>
           </div>
         </section>
+
+        {/* Templates Section - Show when NOT searching/searched */}
+        {!hasSearched && !isSearching && (
+          <section className="container px-16 py-12 relative z-10 -mt-20 lg:-mt-10 mb-20">
+             <div className="text-center mb-12">
+                <h2 className="text-2xl font-semibold mb-2">Start with a Template</h2>
+                <p className="text-gray-500">Choose a starting point for your project</p>
+             </div>
+             
+             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-6xl mx-auto">
+                {[
+                  { title: "Personal Blog", description: "Clean & minimal", icon: "📝", url: "https://example.com/blog" },
+                  { title: "Portfolio", description: "Showcase work", icon: "🎨", url: "https://example.com/portfolio" },
+                  { title: "SaaS Landing", description: "High converting", icon: "🚀", url: "https://example.com/saas" },
+                  { title: "E-commerce", description: "Online store", icon: "🛍️", url: "https://example.com/store" },
+                ].map((template, i) => (
+                  <div key={i} className="group relative bg-white rounded-xl border border-gray-200/60 overflow-hidden hover:shadow-lg hover:-translate-y-1 transition-all duration-300 cursor-pointer h-[200px]"
+                       onClick={() => {
+                          const mockResult: SearchResult = {
+                             url: template.url,
+                             title: template.title,
+                             description: template.description,
+                             screenshot: null,
+                             markdown: ""
+                          };
+                          handleSubmit(mockResult);
+                       }}
+                  >
+                     <div className="absolute inset-0 bg-gradient-to-br from-gray-50/50 to-white flex flex-col items-center justify-center p-6 text-center">
+                        <div className="text-4xl mb-4 grayscale group-hover:grayscale-0 transition-all duration-300 transform group-hover:scale-110">{template.icon}</div>
+                        <h3 className="font-semibold text-lg mb-1 text-gray-800">{template.title}</h3>
+                        <p className="text-sm text-gray-500">{template.description}</p>
+                        
+                        {/* Hover Overlay */}
+                        <div className="absolute inset-0 bg-white/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-[1px]">
+                           <span className="bg-white border border-gray-200 px-5 py-2 rounded-full shadow-sm text-sm font-medium text-gray-700 transform scale-90 group-hover:scale-100 transition-all">Use Template</span>
+                        </div>
+                     </div>
+                  </div>
+                ))}
+             </div>
+          </section>
+        )}
 
         {/* Full-width oval carousel section */}
         {showSearchTiles && hasSearched && (

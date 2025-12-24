@@ -788,10 +788,14 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // 关键修复：如果写入了 App.tsx，需要更新 main.jsx 的导入
-        // E2B sandbox模板的 main.jsx 默认导入 App.jsx，但AI生成的是 App.tsx
+        // 🔥 关键修复：检查 App.tsx 或 App.jsx 是否存在
+        // AI 可能生成 App.tsx 或 App.jsx，需要同时检查
         const hasAppTsx = filteredFiles.some(f => f.path === 'src/App.tsx' || f.path === 'App.tsx');
+        const hasAppJsx = filteredFiles.some(f => f.path === 'src/App.jsx' || f.path === 'App.jsx');
+        const hasAnyAppFile = hasAppTsx || hasAppJsx;
+
         if (hasAppTsx) {
+          // 如果有 App.tsx，更新 main.jsx 导入
           try {
             console.log('[apply-ai-code-stream] Detected App.tsx, updating main.jsx import...');
             await sendProgress({
@@ -799,12 +803,10 @@ export async function POST(request: NextRequest) {
               message: 'Updating main.jsx to import App.tsx...'
             });
 
-            // 读取现有的 main.jsx
             const mainJsxContent = await providerInstance.readFile('src/main.jsx');
             if (mainJsxContent) {
-              // 替换 App.jsx 导入为 App.tsx
               const updatedMainJsx = mainJsxContent.replace(
-                /import App from ['"]\.\/App\.jsx['"]/,
+                /import App from ['"]\.\/App\.(jsx|tsx)['"]/,
                 "import App from './App.tsx'"
               );
 
@@ -821,31 +823,81 @@ export async function POST(request: NextRequest) {
           } catch (mainJsxError) {
             console.warn('[apply-ai-code-stream] Could not update main.jsx:', mainJsxError);
           }
+        } else if (hasAppJsx) {
+          // 🔥 如果有 App.jsx，确保 main.jsx 导入正确（不需要修改，因为默认就是 App.jsx）
+          console.log('[apply-ai-code-stream] ✅ App.jsx found, no import update needed');
         } else {
-          // Fallback: 如果没有App.tsx但有组件，自动生成汇总App.tsx
+          // Fallback: 如果既没有 App.tsx 也没有 App.jsx，但有组件，自动生成汇总 App
           // 这种情况通常发生在AI响应被截断时
           const componentFiles = filteredFiles.filter(f =>
             f.path.includes('/components/') &&
             (f.path.endsWith('.tsx') || f.path.endsWith('.jsx'))
           );
 
-          if (componentFiles.length > 0) {
-            console.log('[apply-ai-code-stream] ⚠️ No App.tsx found but has components, generating fallback App.tsx...');
+          // 🔥 额外检查：layout 目录中的组件也算
+          const layoutFiles = filteredFiles.filter(f =>
+            f.path.includes('/layout/') &&
+            (f.path.endsWith('.tsx') || f.path.endsWith('.jsx'))
+          );
+
+          // 🔥 额外检查：home 目录中的组件也算
+          const homeFiles = filteredFiles.filter(f =>
+            f.path.includes('/home/') &&
+            (f.path.endsWith('.tsx') || f.path.endsWith('.jsx'))
+          );
+
+          const allComponentFiles = [...componentFiles, ...layoutFiles, ...homeFiles];
+
+          if (allComponentFiles.length > 0) {
+            console.log('[apply-ai-code-stream] ⚠️ No App.tsx/App.jsx found but has components, generating fallback App.jsx...');
             await sendProgress({
               type: 'warning',
-              message: 'App.tsx missing (truncated response?), generating fallback...'
+              message: 'App file missing (truncated response?), generating fallback...'
             });
 
             try {
-              // 提取组件名称
-              const componentImports = componentFiles.map(f => {
+              // 🔥 智能分析组件结构，生成更合理的 App
+              const layoutComponent = layoutFiles.find(f => f.path.includes('Layout'));
+              const headerComponent = layoutFiles.find(f => f.path.includes('Header'));
+              const footerComponent = layoutFiles.find(f => f.path.includes('Footer'));
+
+              // 提取所有组件的导入信息
+              const componentImports = allComponentFiles.map(f => {
                 const fileName = f.path.split('/').pop()?.replace(/\.(tsx|jsx)$/, '') || '';
                 const componentName = fileName.charAt(0).toUpperCase() + fileName.slice(1);
-                return { name: componentName, path: f.path.replace('src/', './').replace(/\.(tsx|jsx)$/, '') };
+                const importPath = f.path.replace('src/', './').replace(/\.(tsx|jsx)$/, '');
+                return { name: componentName, path: importPath, fullPath: f.path };
               });
 
-              // 生成fallback App.tsx
-              const fallbackAppContent = `// Auto-generated fallback App.tsx (original was truncated)
+              // 🔥 生成更智能的 fallback App.jsx
+              let fallbackAppContent: string;
+
+              if (layoutComponent) {
+                // 如果有 Layout 组件，使用它作为根
+                const layoutName = layoutComponent.path.split('/').pop()?.replace(/\.(tsx|jsx)$/, '') || 'Layout';
+                const layoutImportPath = layoutComponent.path.replace('src/', './').replace(/\.(tsx|jsx)$/, '');
+
+                // 找出非 layout 的组件
+                const contentComponents = componentImports.filter(c =>
+                  !c.fullPath.includes('/layout/')
+                );
+
+                fallbackAppContent = `// Auto-generated fallback App.jsx
+import React from 'react';
+import ${layoutName} from '${layoutImportPath}';
+${contentComponents.map(c => `import ${c.name} from '${c.path}';`).join('\n')}
+
+export default function App() {
+  return (
+    <${layoutName}>
+      ${contentComponents.map(c => `<${c.name} />`).join('\n      ')}
+    </${layoutName}>
+  );
+}
+`;
+              } else {
+                // 没有 Layout，使用简单结构
+                fallbackAppContent = `// Auto-generated fallback App.jsx
 import React from 'react';
 ${componentImports.map(c => `import ${c.name} from '${c.path}';`).join('\n')}
 
@@ -857,32 +909,21 @@ export default function App() {
   );
 }
 `;
+              }
 
-              await providerInstance.writeFile('src/App.tsx', fallbackAppContent);
-              console.log('[apply-ai-code-stream] ✅ Fallback App.tsx created with', componentImports.length, 'components');
-              results.filesCreated.push('src/App.tsx');
+              // 🔥 使用 App.jsx 而不是 App.tsx（与模板默认一致）
+              await providerInstance.writeFile('src/App.jsx', fallbackAppContent);
+              console.log('[apply-ai-code-stream] ✅ Fallback App.jsx created with', componentImports.length, 'components');
+              results.filesCreated.push('src/App.jsx');
 
               await sendProgress({
                 type: 'file-complete',
-                fileName: 'src/App.tsx',
+                fileName: 'src/App.jsx',
                 action: 'created (fallback)'
               });
-
-              // 更新main.jsx以导入App.tsx
-              const mainJsxContent = await providerInstance.readFile('src/main.jsx');
-              if (mainJsxContent) {
-                const updatedMainJsx = mainJsxContent.replace(
-                  /import App from ['"]\.\/App\.jsx['"]/,
-                  "import App from './App.tsx'"
-                );
-                if (updatedMainJsx !== mainJsxContent) {
-                  await providerInstance.writeFile('src/main.jsx', updatedMainJsx);
-                  console.log('[apply-ai-code-stream] Updated main.jsx to import fallback App.tsx');
-                }
-              }
             } catch (fallbackError) {
-              console.error('[apply-ai-code-stream] Failed to create fallback App.tsx:', fallbackError);
-              results.errors.push(`Failed to create fallback App.tsx: ${(fallbackError as Error).message}`);
+              console.error('[apply-ai-code-stream] Failed to create fallback App.jsx:', fallbackError);
+              results.errors.push(`Failed to create fallback App.jsx: ${(fallbackError as Error).message}`);
             }
           }
         }

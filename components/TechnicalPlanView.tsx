@@ -32,33 +32,14 @@ export default function TechnicalPlanView({
   onEdit,
   onCancel
 }: TechnicalPlanViewProps) {
-  const [displayedContent, setDisplayedContent] = useState('');
   const contentRef = useRef<HTMLDivElement>(null);
-  const lastLengthRef = useRef(0);
 
-  // 打字机效果：逐字显示内容
+  // 自动滚动到底部
   useEffect(() => {
-    if (planContent.length > lastLengthRef.current) {
-      const newChars = planContent.slice(lastLengthRef.current);
-      lastLengthRef.current = planContent.length;
-
-      // 模拟打字机效果（可以调整速度）
-      setDisplayedContent(prev => prev + newChars);
-
-      // 自动滚动到底部
-      if (contentRef.current) {
-        contentRef.current.scrollTop = contentRef.current.scrollHeight;
-      }
+    if (contentRef.current && planContent) {
+      contentRef.current.scrollTop = contentRef.current.scrollHeight;
     }
   }, [planContent]);
-
-  // 重置状态
-  useEffect(() => {
-    if (!isGenerating && planContent.length === 0) {
-      setDisplayedContent('');
-      lastLengthRef.current = 0;
-    }
-  }, [isGenerating, planContent]);
 
   return (
     <div className="h-full flex flex-col bg-white">
@@ -200,7 +181,7 @@ export default function TechnicalPlanView({
         ref={contentRef}
         className="flex-1 overflow-y-auto px-6 py-4"
       >
-        {displayedContent ? (
+        {planContent ? (
           <div className="prose prose-sm max-w-none">
             <ReactMarkdown
               components={{
@@ -247,7 +228,7 @@ export default function TechnicalPlanView({
                 ),
               }}
             >
-              {displayedContent}
+              {planContent}
             </ReactMarkdown>
           </div>
         ) : (
@@ -261,8 +242,8 @@ export default function TechnicalPlanView({
           </div>
         )}
 
-        {/* 打字机光标效果 */}
-        {isGenerating && displayedContent && (
+        {/* 流式输出光标效果 */}
+        {isGenerating && planContent && (
           <span className="inline-block w-2 h-4 bg-blue-600 animate-pulse ml-1" />
         )}
       </div>

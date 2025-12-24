@@ -15,10 +15,10 @@
 @import "./design-system/animations.css";
 @import "./design-system/utilities.css";
 
-/* Tailwind CSS - After all imports */
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* Tailwind CSS - Managed in main.css */
+/* @tailwind base; */
+/* @tailwind components; */
+/* @tailwind utilities; */
 
 /* Container configuration from firecrawl-marketing */
 :root {

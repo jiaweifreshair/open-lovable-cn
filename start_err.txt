@@ -1,4 +1,0 @@
- ⚠ Warning: Found multiple lockfiles. Selecting /Users/apus/pnpm-lock.yaml.
-   Consider removing the lockfiles at:
-   * /Users/apus/Documents/UGit/open-lovable-cn/pnpm-lock.yaml
-

@@ -3218,21 +3218,34 @@ Tip: I automatically detect and install npm packages from your code imports (lik
 
         generatedFiles.push(fileResult);
 
-        setGenerationProgress(prev => ({
-          ...prev,
-          files: [
-            ...prev.files,
-            {
-              path: fileResult!.path,
-              content: fileResult!.content.trim(),
-              type: fileType,
-              completed: true,
-              edited: false
-            }
-          ],
-          currentFile: undefined
-          // 不修改streamedCode - 它已经通过codeChunk事件实时更新了
-        }));
+        setGenerationProgress(prev => {
+          // 去重检查：如果文件已存在，更新内容而不是重复添加
+          const existingIndex = prev.files.findIndex(f => f.path === fileResult!.path);
+          const newFile = {
+            path: fileResult!.path,
+            content: fileResult!.content.trim(),
+            type: fileType,
+            completed: true,
+            edited: false
+          };
+
+          let updatedFiles;
+          if (existingIndex >= 0) {
+            // 文件已存在，更新内容
+            updatedFiles = [...prev.files];
+            updatedFiles[existingIndex] = newFile;
+          } else {
+            // 新文件，添加到数组
+            updatedFiles = [...prev.files, newFile];
+          }
+
+          return {
+            ...prev,
+            files: updatedFiles,
+            currentFile: undefined
+            // 不修改streamedCode - 它已经通过codeChunk事件实时更新了
+          };
+        });
       }
 
       const generatedCode = generatedFiles
@@ -3828,7 +3841,10 @@ Focus on the key sections and content, making it clean and modern.`;
                         }}
                       >
                         {(() => {
-                          const lastContent = generationProgress.streamedCode.slice(-1000);
+                          let lastContent = generationProgress.streamedCode.slice(-1000);
+                          // 过滤thinking标签及其内容
+                          lastContent = lastContent.replace(/<thinking>[\s\S]*?<\/thinking>/g, '');
+                          lastContent = lastContent.replace(/<thinking>[\s\S]*/g, ''); // 处理未闭合的thinking标签
                           // Show the last part of the stream, starting from a complete tag if possible
                           const startIndex = lastContent.indexOf('<');
                           return startIndex !== -1 ? lastContent.slice(startIndex) : lastContent;

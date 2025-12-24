@@ -27,6 +27,7 @@ import {
   assembleGeneratedCode,
   normalizeXmlTags,
   repairBrokenXmlTags,
+  autoCompleteMissingFiles,
   type ValidationIssue
 } from '@/lib/multi-turn-fix-engine';
 // 🔥 V3.0 分段生成策略 - 解决token超限和代码混乱
@@ -1571,7 +1572,7 @@ If you're running out of space, generate FEWER files but make them COMPLETE.
 It's better to have 3 complete files than 10 incomplete files.`
             }
           ],
-                    maxTokens: 30000,
+                    maxOutputTokens: 64000, // 🔥 增加 token 限制，支持复杂页面（如淘宝风格、大量 Mock 数据）
           stopSequences: [] // Don't stop early
           // Note: Neither Groq nor Anthropic models support tool/function calling in this context
           // We use XML tags for package detection instead
@@ -1604,7 +1605,7 @@ It's better to have 3 complete files than 10 incomplete files.`
         let tagBuffer = '';
         
         let loopCount = 0;
-        const maxLoops = 5;
+        const maxLoops = 8; // 🔥 增加最大循环次数，支持复杂页面（如淘宝风格、大量 Mock 数据）
         let continueGeneration = false;
 
         do {
@@ -1660,10 +1661,32 @@ It's better to have 3 complete files than 10 incomplete files.`
              const isInMiddleOfFile = lastFileMatch && !generatedCode.endsWith('</file>');
              const currentFileName = lastFileMatch ? lastFileMatch[1] : 'unknown';
 
-             // 获取最后 200 个字符作为上下文提示
-             const lastContext = generatedCode.slice(-200);
+             // 获取最后 500 个字符作为上下文提示（增加上下文长度以便更好定位）
+             const lastContext = generatedCode.slice(-500);
+
+             // 🔥 分析截断类型，给出更精确的续写指导
+             let truncationType = 'general';
+             let truncationGuidance = '';
+
+             // 检测 URL 截断
+             if (/https?:\/\/[^\s"',>]*$/.test(lastContext)) {
+               truncationType = 'url';
+               truncationGuidance = '⚠️ 检测到 URL 被截断！请先完成当前 URL 字符串。';
+             }
+             // 检测字符串截断（引号不匹配）
+             else if ((lastContext.match(/'/g) || []).length % 2 !== 0 ||
+                      (lastContext.match(/"/g) || []).length % 2 !== 0) {
+               truncationType = 'string';
+               truncationGuidance = '⚠️ 检测到字符串被截断！请先闭合当前字符串。';
+             }
+             // 检测数组/对象截断（以逗号结尾）
+             else if (lastContext.trim().endsWith(',')) {
+               truncationType = 'array_object';
+               truncationGuidance = '⚠️ 检测到数组/对象元素被截断！请继续完成剩余元素。';
+             }
+
              const contextHint = isInMiddleOfFile
-               ? `\n📍 Truncation Context (last 200 chars):\n\`\`\`\n${lastContext}\n\`\`\`\n`
+               ? `\n📍 Truncation Context (last 500 chars):\n\`\`\`\n${lastContext}\n\`\`\`\n${truncationGuidance ? `\n${truncationGuidance}` : ''}`
                : '';
 
              // 🔥 动态生成续写指令
@@ -2058,6 +2081,87 @@ ${continuationInstruction}
                 }
               }
             }
+
+            // 🔥 Check 6: URL 截断检测（检测未完成的 URL）
+            if (!quickTruncationDetected && fileOpenCount > 0) {
+              const trimmedCode = generatedCode.trim();
+              // 检测以 http:// 或 https:// 开头但没有正确结束的 URL
+              // URL 应该以 引号、空格、逗号 或 > 结束
+              const lastLine = trimmedCode.split('\n').pop() || '';
+              const urlInProgress = /https?:\/\/[^\s"',>]*$/.test(lastLine);
+              if (urlInProgress) {
+                quickTruncationDetected = true;
+                console.warn('[generate-ai-code-stream] 🚨 Quick check: URL truncated mid-string');
+              }
+            }
+
+            // 🔥 Check 7: 字符串中间截断检测（最后一行引号不匹配）
+            if (!quickTruncationDetected && fileOpenCount > 0) {
+              const trimmedCode = generatedCode.trim();
+              const lastLines = trimmedCode.split('\n').slice(-3).join('\n'); // 检查最后3行
+
+              // 计算最后几行的引号数量
+              const singleQuotes = (lastLines.match(/'/g) || []).length;
+              const doubleQuotes = (lastLines.match(/"/g) || []).length;
+              const backticks = (lastLines.match(/`/g) || []).length;
+
+              // 如果引号数量是奇数，说明有未闭合的字符串
+              if (singleQuotes % 2 !== 0 || doubleQuotes % 2 !== 0 || backticks % 2 !== 0) {
+                // 进一步确认：检查最后一行是否看起来像截断
+                const lastLine = trimmedCode.split('\n').pop() || '';
+                const looksLikeTruncation =
+                  !lastLine.endsWith(';') &&
+                  !lastLine.endsWith('}') &&
+                  !lastLine.endsWith(')') &&
+                  !lastLine.endsWith('>') &&
+                  !lastLine.endsWith('</file>');
+
+                if (looksLikeTruncation) {
+                  quickTruncationDetected = true;
+                  console.warn(`[generate-ai-code-stream] 🚨 Quick check: String truncated (quotes: single=${singleQuotes}, double=${doubleQuotes}, backtick=${backticks})`);
+                }
+              }
+            }
+
+            // 🔥 Check 8: 数组/对象中间截断检测（括号不匹配）
+            if (!quickTruncationDetected && fileOpenCount > 0) {
+              // 获取最后一个文件的内容
+              const lastFileMatch = generatedCode.match(/<file\s+path="[^"]+">([^]*?)(?:<\/file>|$)/g);
+              if (lastFileMatch) {
+                const lastFileContent = lastFileMatch[lastFileMatch.length - 1];
+
+                // 计算大括号、方括号、圆括号的数量
+                const openBraces = (lastFileContent.match(/\{/g) || []).length;
+                const closeBraces = (lastFileContent.match(/\}/g) || []).length;
+                const openBrackets = (lastFileContent.match(/\[/g) || []).length;
+                const closeBrackets = (lastFileContent.match(/\]/g) || []).length;
+                const openParens = (lastFileContent.match(/\(/g) || []).length;
+                const closeParens = (lastFileContent.match(/\)/g) || []).length;
+
+                // 如果有明显的不匹配（差异 >= 1），认为是截断
+                const braceDiff = openBraces - closeBraces;
+                const bracketDiff = openBrackets - closeBrackets;
+                const parenDiff = openParens - closeParens;
+
+                // 🔥 调整阈值：任何未闭合的括号都应该触发截断检测
+                // 但需要结合其他条件避免误报（如文件未完成）
+                const hasUnclosedBrackets = braceDiff >= 1 || bracketDiff >= 1 || parenDiff >= 3;
+                const lastFileClosed = lastFileContent.includes('</file>');
+
+                if (hasUnclosedBrackets && !lastFileClosed) {
+                  quickTruncationDetected = true;
+                  console.warn(`[generate-ai-code-stream] 🚨 Quick check: Brackets unbalanced (braces: +${braceDiff}, brackets: +${bracketDiff}, parens: +${parenDiff})`);
+                }
+
+                // 额外检查：最后一行是否以逗号结尾且在数组/对象内部
+                const lastLine = lastFileContent.split('\n').pop() || '';
+                const trimmedLastLine = lastLine.trim();
+                if (trimmedLastLine.endsWith(',') && (openBraces > closeBraces || openBrackets > closeBrackets)) {
+                  quickTruncationDetected = true;
+                  console.warn('[generate-ai-code-stream] 🚨 Quick check: Array/object element truncated (ends with comma in unclosed structure)');
+                }
+              }
+            }
           }
 
           // Decide on continuation: either by finishReason OR by truncation detection
@@ -2395,10 +2499,7 @@ ${continuationInstruction}
             f.path === 'App.tsx'
           );
 
-          const hasIndexCss = files.some(f =>
-            f.path === 'src/index.css' ||
-            f.path === 'index.css'
-          );
+          // 🔥 hasIndexCss 不再需要单独检查，由通用依赖验证处理
 
           const hasComponents = files.some(f =>
             f.path.includes('/components/') &&
@@ -2411,10 +2512,33 @@ ${continuationInstruction}
               truncationWarnings.push(`Critical: App.jsx/App.tsx is missing but components were generated`);
               console.warn('[generate-ai-code-stream] 🚨 CRITICAL: Missing App.jsx/App.tsx but has components');
             }
-            if (!hasIndexCss) {
-              truncationWarnings.push(`Warning: index.css is missing - styling foundation may be incomplete`);
-              console.warn('[generate-ai-code-stream] ⚠️ Missing index.css but has components');
+          }
+
+          // 🔥 通用依赖验证和自动补全（包括 CSS 文件）
+          const dependencyIssues = validateDependencies(files);
+          if (dependencyIssues.length > 0) {
+            console.log(`[generate-ai-code-stream] 📋 检测到 ${dependencyIssues.length} 个依赖问题`);
+            dependencyIssues.forEach(issue => {
+              console.log(`[generate-ai-code-stream]   - ${issue.severity}: ${issue.message}`);
+            });
+
+            // 自动补全缺失的文件（主要是 CSS 文件）
+            const { completedFiles, remainingIssues } = autoCompleteMissingFiles(files, dependencyIssues);
+
+            if (completedFiles.length > 0) {
+              console.log(`[generate-ai-code-stream] ✅ 自动补全了 ${completedFiles.length} 个文件:`);
+              completedFiles.forEach(f => {
+                console.log(`[generate-ai-code-stream]   - ${f.path}`);
+                files.push(f);
+              });
             }
+
+            // 将无法自动补全的问题添加到警告列表
+            remainingIssues.forEach(issue => {
+              if (issue.severity === 'error') {
+                truncationWarnings.push(`${issue.message} (${issue.suggestion})`);
+              }
+            });
           }
         }
 
@@ -2817,7 +2941,27 @@ ${context?.currentFiles ? `
 ${Object.keys(context.currentFiles).map(f => `- ${f}`).join('\n')}
 ` : ''}
 
-请以 JSON 格式输出文件清单，格式如下：
+请以 JSON 格式输出文件清单（只输出 JSON，不要 Markdown 代码块，不要解释文字），格式如下：
+{
+  "files": [
+    {
+      "path": "src/App.jsx",
+      "description": "应用主入口，配置路由和全局状态",
+      "type": "page",
+      "dependencies": ["src/components/Header.jsx", "src/pages/Home.jsx"],
+      "isCritical": true,
+      "estimatedLines": 50
+    }
+  ]
+}
+
+🚨 强约束（务必遵守）：
+1. 输出必须是完整 JSON（以 { 开始，以 } 结束），不能截断
+2. files 数组不能为空；文件数量控制在 3-30 个之间（避免列出图片/字体等二进制资源）
+3. dependencies 不确定可填空数组；type 不确定可填 other
+4. 描述保持简短，避免过长导致输出被截断
+
+示例（仅示例，不要照抄）：
 \`\`\`json
 {
   "files": [
@@ -2851,7 +2995,7 @@ ${Object.keys(context.currentFiles).map(f => `- ${f}`).join('\n')}
 
 只输出 JSON，不要其他解释。`;
 
-  try {
+  const runModel = async (userContent: string): Promise<string> => {
     const result = await streamText({
       model: modelProvider(actualModel),
       messages: [
@@ -2861,37 +3005,86 @@ ${Object.keys(context.currentFiles).map(f => `- ${f}`).join('\n')}
         },
         {
           role: 'user',
-          content: manifestPrompt
+          content: userContent
         }
       ],
-      temperature: 0.3, // 降低温度以获得更稳定的输出
+      temperature: 0.2, // 尽量降低随机性，减少格式漂移/截断风险
     });
 
-    let manifestText = '';
+    let text = '';
     for await (const chunk of result.textStream) {
-      manifestText += chunk;
+      text += chunk;
+    }
+    return text;
+  };
+
+  try {
+    // 1) 首次生成
+    const firstOutput = await runModel(manifestPrompt);
+    console.log('[generateManifest] AI 输出:', firstOutput);
+
+    // ⚠️ 检查输出是否为空（可能是 API 调用失败）
+    if (!firstOutput || firstOutput.trim().length === 0) {
+      console.error('[generateManifest] ❌ AI 输出为空，可能是 API 调用失败（rate limit 或网络错误）');
+      throw new Error('文件清单生成失败：API 返回空内容，请稍后重试或切换模型');
     }
 
-    console.log('[generateManifest] AI 输出:', manifestText);
-
-    // 提取 JSON（可能包裹在```json...```中）
-    const jsonMatch = manifestText.match(/```json\s*([\s\S]*?)\s*```/) ||
-                     manifestText.match(/```\s*([\s\S]*?)\s*```/) ||
-                     [null, manifestText];
-
-    const jsonStr = jsonMatch[1] || manifestText;
-    const parsed = JSON.parse(jsonStr.trim());
-
-    if (!parsed.files || !Array.isArray(parsed.files)) {
-      throw new Error('Invalid manifest format: missing "files" array');
+    const parsedFirst = parseManifestFromModelOutput(firstOutput);
+    if (parsedFirst.length > 0) {
+      console.log(`[generateManifest] 成功生成 ${parsedFirst.length} 个文件的清单`);
+      return parsedFirst;
     }
 
-    console.log(`[generateManifest] 成功生成 ${parsed.files.length} 个文件的清单`);
-    return parsed.files as FileManifestItem[];
+    // 2) 本地兜底：即使 JSON 被截断，也尽量从片段中提取 path，避免 0 文件
+    const recoveredFirst = recoverManifestFromModelOutput(firstOutput);
+    if (recoveredFirst.length > 0) {
+      console.warn(`[generateManifest] ⚠️ JSON 解析失败，已从片段恢复 ${recoveredFirst.length} 个文件`);
+      return recoveredFirst;
+    }
 
+    // 3) 二次兜底：让模型仅输出“修复后的完整 JSON”
+    const repairPrompt = `
+你上一次输出的文件清单不是可解析的 JSON（可能被截断或混入了非 JSON 文本）。
+请根据用户需求，重新输出一份“完整、可解析、只包含 JSON”的文件清单。
+
+要求：
+1) 只输出 JSON（不要 Markdown 代码块、不要解释文字）
+2) 输出必须以 { 开始，以 } 结束，并包含 "files" 数组
+3) 文件数量控制在 3-30 个之间（避免列出图片/字体等二进制资源）
+4) 每个文件至少包含：path、description、type、dependencies（dependencies 可为空数组；type 不确定可用 other）
+
+用户需求：
+${prompt}
+
+${context?.currentFiles ? `
+现有文件（仅供参考）：
+${Object.keys(context.currentFiles).slice(0, 50).map(f => `- ${f}`).join('\n')}
+${Object.keys(context.currentFiles).length > 50 ? `... 共 ${Object.keys(context.currentFiles).length} 个文件` : ''}
+` : ''}
+
+上一次输出（可能不完整，仅供参考）：
+${firstOutput.slice(0, 6000)}
+`;
+
+    const secondOutput = await runModel(repairPrompt);
+    console.log('[generateManifest] AI 修复输出:', secondOutput);
+
+    const parsedSecond = parseManifestFromModelOutput(secondOutput);
+    if (parsedSecond.length > 0) {
+      console.log(`[generateManifest] 修复后成功生成 ${parsedSecond.length} 个文件的清单`);
+      return parsedSecond;
+    }
+
+    const recoveredSecond = recoverManifestFromModelOutput(secondOutput);
+    if (recoveredSecond.length > 0) {
+      console.warn(`[generateManifest] ⚠️ 修复输出仍无法解析 JSON，已从片段恢复 ${recoveredSecond.length} 个文件`);
+      return recoveredSecond;
+    }
+
+    throw new Error('AI 输出的文件清单无法解析为有效 JSON（可能被截断），请重试或简化需求。');
   } catch (error) {
     console.error('[generateManifest] 生成文件清单失败:', error);
-    throw new Error(`文件清单生成失败: ${(error as Error).message}`);
+    throw error;
   }
 }
 
@@ -3032,7 +3225,10 @@ ${depContent.substring(0, 500)}... // 截取前500字符作为参考
     requirementLines.push('- 只输出 CSS（可包含 Tailwind 指令），不要输出 JS/TS');
   }
   if (isJsonFile) {
-    requirementLines.push('- 只输出 JSON，必须可被 JSON.parse 解析');
+    requirementLines.push('- 只输出纯 JSON 内容，必须可被 JSON.parse 解析');
+    requirementLines.push('- JSON 格式必须标准：每个键值对只出现一次，格式为 "key": "value"');
+    requirementLines.push('- 严禁重复输出键名或值，严禁在值后面添加额外文本');
+    requirementLines.push('- 不要添加注释或说明文字（JSON 不支持注释）');
   }
 
   const filePrompt = `
@@ -3054,7 +3250,7 @@ ${requirementLines.join('\n')}
 
 输出格式（严格遵守）：
 <file path="${filePath}">
-// 完整的文件代码
+${isJsonFile ? '{ ... 完整的JSON内容 ... }' : '// 完整的文件代码'}
 </file>`;
 
   try {
@@ -3084,41 +3280,165 @@ ${requirementLines.join('\n')}
           }
         ],
         temperature: attempt > 1 ? 0.2 : 0.5,
+        maxOutputTokens: 16000, // 增加输出长度限制，防止截断
       });
 
       let raw = '';
-      for await (const chunk of result.textStream) {
-        raw += chunk;
-        // 🔥 打字机效果：实时发送代码块给前端
-        if (sendProgress) {
-          await sendProgress({
-            type: 'codeChunk',
-            chunk: chunk,
-            filePath: manifestItem.path
-          });
+      try {
+        for await (const chunk of result.textStream) {
+          raw += chunk;
+          // 🔥 打字机效果：实时发送代码块给前端
+          if (sendProgress) {
+            await sendProgress({
+              type: 'codeChunk',
+              chunk: chunk,
+              filePath: manifestItem.path
+            });
+          }
         }
+      } catch (streamError: any) {
+        console.error(`[generateSingleFile] Stream error for ${filePath}:`, streamError.message);
+        throw new Error(`AI API 流式响应错误: ${streamError.message}`);
       }
+
+      // 检查是否返回了空内容（可能是 API 错误导致）
+      if (!raw || raw.trim().length === 0) {
+        throw new Error('AI API 返回了空内容，可能是服务暂时不可用');
+      }
+
       return raw;
     };
 
-    // 最多尝试 2 次，减少因格式偏差导致的整体失败
-    let fileContent = await generateOnce(1);
-    let content = extractSingleFileContentFromModelOutput(fileContent, filePath);
-    if (!content) {
-      console.warn(`[generateSingleFile] ⚠️ 第一次未能提取内容，尝试重试: ${filePath}`);
-      fileContent = await generateOnce(2);
-      content = extractSingleFileContentFromModelOutput(fileContent, filePath);
+    // 最多尝试 2 次，包括 API 错误和格式偏差
+    let fileContent = '';
+    let content: string | null = null;
+    let lastError: Error | null = null;
+
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        fileContent = await generateOnce(attempt);
+        content = extractSingleFileContentFromModelOutput(fileContent, filePath);
+
+        if (content) {
+          break; // 成功提取内容，退出循环
+        }
+
+        console.warn(`[generateSingleFile] ⚠️ 第 ${attempt} 次未能提取内容: ${filePath}`);
+        lastError = new Error(`无法从输出中提取文件内容`);
+      } catch (error: any) {
+        console.warn(`[generateSingleFile] ⚠️ 第 ${attempt} 次生成失败: ${filePath} - ${error.message}`);
+        lastError = error;
+
+        if (attempt < 2) {
+          // 如果是 API 错误，等待一下再重试
+          console.log(`[generateSingleFile] 等待 3 秒后重试...`);
+          await new Promise(resolve => setTimeout(resolve, 3000));
+        }
+      }
     }
 
     if (!content) {
-      throw new Error(`无法从输出中提取文件内容。输出: ${fileContent.substring(0, 400)}...`);
+      const errorMsg = lastError?.message || '未知错误';
+      throw new Error(`无法从输出中提取文件内容。错误: ${errorMsg}。输出: ${fileContent.substring(0, 400)}...`);
     }
 
     console.log(`[generateSingleFile] ${filePath} 生成完成，长度: ${content.length}`);
 
-    // 基础验证：检查是否有明显的截断标记
-    if (content.includes('...') && !content.includes('// ...')) {
-      console.warn(`[generateSingleFile] ⚠️ 警告：${filePath} 可能存在截断`);
+    // ���� 增强截断检测：检查多种截断标志
+    let isTruncated = false;
+    const truncationReasons: string[] = [];
+
+    // 1. 检查明显的截断标记
+    if (content.includes('...') && !content.includes('// ...') && !content.includes('...props') && !content.includes('...rest')) {
+      truncationReasons.push('包含省略号');
+    }
+
+    // 2. 检查引号匹配
+    const doubleQuotes = (content.match(/"/g) || []).length;
+    const backticks = (content.match(/`/g) || []).length;
+    if (doubleQuotes % 2 !== 0) {
+      truncationReasons.push(`双引号不匹配 (${doubleQuotes}个)`);
+      isTruncated = true;
+    }
+    if (backticks % 2 !== 0) {
+      truncationReasons.push(`反引号不匹配 (${backticks}个)`);
+      isTruncated = true;
+    }
+
+    // 3. 检查括号匹配 - 更严格
+    const openBraces = (content.match(/{/g) || []).length;
+    const closeBraces = (content.match(/}/g) || []).length;
+    if (openBraces > closeBraces + 1) {
+      truncationReasons.push(`大括号不匹配 ({:${openBraces}, }:${closeBraces})`);
+      isTruncated = true;
+    }
+
+    const openParens = (content.match(/\(/g) || []).length;
+    const closeParens = (content.match(/\)/g) || []).length;
+    if (openParens > closeParens + 1) {
+      truncationReasons.push(`圆括号不匹配 ((:${openParens}, ):${closeParens})`);
+      isTruncated = true;
+    }
+
+    const openBrackets = (content.match(/\[/g) || []).length;
+    const closeBrackets = (content.match(/\]/g) || []).length;
+    if (openBrackets > closeBrackets + 1) {
+      truncationReasons.push(`方括号不匹配 ([:${openBrackets}, ]:${closeBrackets})`);
+      isTruncated = true;
+    }
+
+    // 4. 检查文件是否在不完整的位置结束
+    const trimmed = content.trim();
+    const lastLine = trimmed.split('\n').pop() || '';
+
+    if (trimmed.endsWith('="') || trimmed.endsWith("='") || trimmed.endsWith('=`') ||
+        trimmed.endsWith('(') || trimmed.endsWith('{') || trimmed.endsWith('[')) {
+      truncationReasons.push(`文件在不完整位置结束: ...${trimmed.slice(-30)}`);
+      isTruncated = true;
+    }
+
+    // 5. 检查是否以逗号结尾（在数组或对象中截断）
+    if (trimmed.endsWith(',') && !trimmed.endsWith('},') && !trimmed.endsWith('],')) {
+      truncationReasons.push(`文件以逗号结尾，可能在数组/对象中截断`);
+      isTruncated = true;
+    }
+
+    // 6. 检查对象字面量是否在中间截断
+    if (lastLine.match(/{\s*\w+:\s*["'][^"']*["'],?\s*$/) && !lastLine.includes('}')) {
+      truncationReasons.push(`对象字面量不完整: ${lastLine.slice(-50)}`);
+      isTruncated = true;
+    }
+
+    if (isTruncated) {
+      console.error(`[generateSingleFile] ❌ 文件 ${filePath} 检测到截断:`, truncationReasons);
+      // 尝试重新生成，最多重试2次
+      for (let retry = 1; retry <= 2; retry++) {
+        console.log(`[generateSingleFile] 🔄 尝试重新生成 ${filePath} (第${retry}次重试)...`);
+        const retryContent = await generateOnce(2 + retry);
+        const retryExtracted = extractSingleFileContentFromModelOutput(retryContent, filePath);
+        if (retryExtracted && retryExtracted.length > content.length) {
+          // 检查重试后的内容是否完整
+          const retryTrimmed = retryExtracted.trim();
+          const retryOpenBraces = (retryExtracted.match(/{/g) || []).length;
+          const retryCloseBraces = (retryExtracted.match(/}/g) || []).length;
+          const retryDoubleQuotes = (retryExtracted.match(/"/g) || []).length;
+
+          if (retryOpenBraces <= retryCloseBraces + 1 &&
+              retryDoubleQuotes % 2 === 0 &&
+              !retryTrimmed.endsWith(',') &&
+              !retryTrimmed.endsWith('{') &&
+              !retryTrimmed.endsWith('[')) {
+            console.log(`[generateSingleFile] ✅ 重新生成成功，新长度: ${retryExtracted.length} (原: ${content.length})`);
+            content = retryExtracted;
+            break;
+          } else {
+            console.warn(`[generateSingleFile] ⚠️ 重试${retry}内容仍不完整，继续重试...`);
+            if (retryExtracted.length > content.length) {
+              content = retryExtracted;
+            }
+          }
+        }
+      }
     }
 
     return {
@@ -3139,7 +3459,7 @@ ${requirementLines.join('\n')}
  * - 代码块不止一个、顺序变化
  * - JSON 有轻微格式瑕疵（常见：尾逗号）
  *
- * 这里做“尽量解析”的本地修复，减少因为解析失败导致的 0 文件问题。
+ * 这里做"尽量解析"的本地修复，减少因为解析失败导致的 0 文件问题。
  */
 function extractSuggestedManifestFromPlan(planContent: string): FileManifestItem[] {
   const candidates: string[] = [];
@@ -3160,13 +3480,241 @@ function extractSuggestedManifestFromPlan(planContent: string): FileManifestItem
     }
   }
 
-  // 3) 逐个尝试解析，找到第一个有效的 manifest
+  // 3) 再兜底：有些模型会直接输出裸 JSON（不包裹 code fence），这里把全文也作为候选尝试一次
+  candidates.push(planContent);
+
+  // 4) 逐个尝试解析，找到第一个有效的 manifest
   for (const candidate of candidates) {
     const parsed = tryParseManifestJson(candidate);
     if (parsed.length > 0) return parsed;
   }
 
+  // 5) JSON 解析全部失败时，尝试从文本中恢复文件路径
+  const recovered = recoverManifestFromModelOutput(planContent);
+  if (recovered.length > 0) {
+    console.log(`[extractSuggestedManifestFromPlan] ⚠️ JSON 解析失败，从文本中恢复了 ${recovered.length} 个文件路径`);
+    return recovered;
+  }
+
+  // 6) 最后兜底：从 Markdown 中提取文件路径模式（如 src/xxx.tsx）
+  const pathsFromMarkdown = extractFilePathsFromMarkdown(planContent);
+  if (pathsFromMarkdown.length > 0) {
+    console.log(`[extractSuggestedManifestFromPlan] ⚠️ 从 Markdown 文本中提取了 ${pathsFromMarkdown.length} 个文件路径`);
+    return pathsFromMarkdown;
+  }
+
   return [];
+}
+
+/**
+ * 从 Markdown 文本中提取文件路径（最后的兜底方案）
+ * 匹配常见的文件路径模式，如：
+ * - src/components/Header.tsx
+ * - app/page.tsx
+ * - index.html
+ */
+function extractFilePathsFromMarkdown(content: string): FileManifestItem[] {
+  const pathPatterns = [
+    // 匹配 src/ 或 app/ 开头的路径
+    /(?:^|\s|`|"|'|\()((?:src|app|pages|components|lib|utils|hooks|styles|public)\/[\w\-\/]+\.(?:tsx?|jsx?|css|scss|html|json))/gim,
+    // 匹配列表项中的文件路径 (- src/xxx.tsx 或 * src/xxx.tsx)
+    /^[\s]*[-*]\s*([\w\-\/]+\.(?:tsx?|jsx?|css|scss|html|json))/gim,
+    // 匹配 index.xxx 或 main.xxx
+    /(?:^|\s|`|"|'|\()((?:index|main|App|app)\.(?:tsx?|jsx?|css|html))/gim,
+    // 匹配配置文件
+    /(?:^|\s|`|"|'|\()((tailwind|vite|next|postcss|tsconfig)\.config\.(?:js|ts|mjs|json))/gim,
+    /(?:^|\s|`|"|'|\()(package\.json)/gim,
+  ];
+
+  const seenPaths = new Set<string>();
+  const items: FileManifestItem[] = [];
+
+  for (const pattern of pathPatterns) {
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(content)) !== null) {
+      const path = (match[1] || '').trim();
+      if (!path || seenPaths.has(path)) continue;
+
+      // 过滤掉明显不是文件路径的匹配
+      if (path.includes('...') || path.includes('example') || path.length < 3) continue;
+
+      seenPaths.add(path);
+      items.push({
+        path,
+        description: `从方案中提取的文件`,
+        type: normalizeRecoveredManifestType(path, ''),
+        dependencies: [],
+        isCritical: path.includes('App') || path.includes('index') || path.includes('main'),
+        estimatedLines: 50
+      });
+    }
+  }
+
+  // 按路径排序，让入口文件排在前面
+  return items.sort((a, b) => {
+    const aIsEntry = a.path.includes('App') || a.path.includes('index') || a.path.includes('main');
+    const bIsEntry = b.path.includes('App') || b.path.includes('index') || b.path.includes('main');
+    if (aIsEntry && !bIsEntry) return -1;
+    if (!aIsEntry && bIsEntry) return 1;
+    return a.path.localeCompare(b.path);
+  });
+}
+
+/**
+ * 从模型输出中尽量解析出 manifest（优先严格 JSON，失败则返回空数组）。
+ */
+function parseManifestFromModelOutput(output: string): FileManifestItem[] {
+  if (!output || typeof output !== 'string') return [];
+
+  const candidates: string[] = [];
+
+  // 1) 提取 ```json ... ```（可能存在多个）
+  const jsonFenceRegex = /```json\s*([\s\S]*?)\s*```/gi;
+  let match: RegExpExecArray | null;
+  while ((match = jsonFenceRegex.exec(output)) !== null) {
+    candidates.push(match[1]);
+  }
+
+  // 2) 提取通用 code fence，并筛选疑似 JSON 的块
+  const anyFenceRegex = /```\s*([\s\S]*?)\s*```/gi;
+  while ((match = anyFenceRegex.exec(output)) !== null) {
+    const block = match[1];
+    if (!block || typeof block !== 'string') continue;
+    const trimmed = block.trim();
+    if (trimmed.startsWith('{') || trimmed.startsWith('[') || trimmed.includes('"files"')) {
+      candidates.push(block);
+    }
+  }
+
+  // 3) 从全文截取“最外层看起来像 JSON”的片段（应对模型在 JSON 前后混入少量文字）
+  const firstBrace = output.indexOf('{');
+  const lastBrace = output.lastIndexOf('}');
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    candidates.push(output.slice(firstBrace, lastBrace + 1));
+  }
+
+  const firstBracket = output.indexOf('[');
+  const lastBracket = output.lastIndexOf(']');
+  if (firstBracket !== -1 && lastBracket > firstBracket) {
+    candidates.push(output.slice(firstBracket, lastBracket + 1));
+  }
+
+  // 4) 全文兜底：有些模型会直接输出裸 JSON（不包裹 code fence）
+  candidates.push(output);
+
+  // 去重 + 依次尝试解析
+  const seen = new Set<string>();
+  for (const candidate of candidates) {
+    const normalized = (candidate || '').trim();
+    if (!normalized) continue;
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+
+    const parsed = tryParseManifestJson(normalized);
+    if (parsed.length > 0) return parsed;
+  }
+
+  return [];
+}
+
+/**
+ * 当 JSON 解析失败时，尽量从片段中恢复 path 列表，避免流程直接退化到 0 文件。
+ *
+ * 说明：
+ * - 最常见的失败原因是模型输出在数组/对象中间被截断（SyntaxError: Unexpected end of JSON input）
+ * - 此时虽然 JSON 不完整，但 `"path": "..."` 往往已经输出，可用于恢复最小可用 manifest
+ */
+function recoverManifestFromModelOutput(output: string): FileManifestItem[] {
+  if (!output || typeof output !== 'string') return [];
+
+  const matches = [
+    ...output.matchAll(/"path"\s*:\s*"([^"]+)"/g),
+    ...output.matchAll(/"path"\s*:\s*'([^']+)'/g),
+  ];
+
+  if (matches.length === 0) return [];
+
+  const items: FileManifestItem[] = [];
+  const seenPaths = new Set<string>();
+
+  for (let i = 0; i < matches.length; i += 1) {
+    const m = matches[i];
+    const path = (m[1] || '').trim();
+    if (!path) continue;
+    // 粗筛：避免把 URL/无意义字段误判为路径
+    if (path.startsWith('http://') || path.startsWith('https://')) continue;
+    if (!path.includes('/')) continue;
+
+    if (seenPaths.has(path)) continue;
+    seenPaths.add(path);
+
+    const start = typeof m.index === 'number' ? m.index : 0;
+    const end = (i + 1 < matches.length && typeof matches[i + 1].index === 'number')
+      ? (matches[i + 1].index as number)
+      : Math.min(output.length, start + 1200);
+    const segment = output.slice(start, end);
+
+    const descriptionMatch =
+      segment.match(/"description"\s*:\s*"([^"]*)"/) ||
+      segment.match(/"description"\s*:\s*'([^']*)'/);
+    const description = descriptionMatch ? String(descriptionMatch[1] || '').trim() : '';
+
+    const typeMatch =
+      segment.match(/"type"\s*:\s*"([^"]+)"/) ||
+      segment.match(/"type"\s*:\s*'([^']+)'/);
+    const rawType = typeMatch ? String(typeMatch[1] || '').trim() : '';
+    const type = normalizeRecoveredManifestType(path, rawType);
+
+    items.push({
+      path,
+      description,
+      dependencies: [],
+      type,
+    });
+
+    // 防止恢复过多导致后续单文件生成压力过大
+    if (items.length >= 60) break;
+  }
+
+  return items;
+}
+
+/**
+ * 归一化恢复出来的文件类型；如果模型没有给 type，则按路径启发式推断。
+ */
+function normalizeRecoveredManifestType(path: string, rawType: string): FileManifestItem['type'] {
+  const allowed = new Set<FileManifestItem['type']>([
+    'component',
+    'page',
+    'api',
+    'lib',
+    'config',
+    'style',
+    'other',
+  ]);
+  if (allowed.has(rawType as FileManifestItem['type'])) {
+    return rawType as FileManifestItem['type'];
+  }
+
+  const lower = path.toLowerCase();
+  if (lower.includes('/components/')) return 'component';
+  if (lower.includes('/pages/') || lower.includes('/app/')) return 'page';
+  if (lower.includes('/api/')) return 'api';
+  if (lower.includes('/lib/') || lower.includes('/utils/') || lower.includes('/hooks/')) return 'lib';
+  if (lower.endsWith('.css') || lower.endsWith('.scss') || lower.endsWith('.less')) return 'style';
+  if (
+    lower.endsWith('package.json') ||
+    lower.includes('tsconfig') ||
+    lower.includes('vite.config') ||
+    lower.includes('next.config') ||
+    lower.includes('tailwind.config') ||
+    lower.includes('postcss.config') ||
+    lower.includes('eslint') ||
+    lower.includes('prettier')
+  ) {
+    return 'config';
+  }
+  return 'other';
 }
 
 /**
@@ -3431,85 +3979,38 @@ async function generatePlan(
   console.log('[generatePlan] 开始生成技术方案...');
 
   const planPrompt = `
-你是一名资深的全栈架构师和技术专家。用户提出了以下需求，请进行深入分析并输出详细的技术实现方案。
+分析需求，输出极简技术方案。
 
-## 用户需求
+## 需求
 ${prompt}
 
-${context?.currentFiles && Object.keys(context.currentFiles).length > 0 ? `
-## 现有项目文件
-${Object.keys(context.currentFiles).slice(0, 20).map(f => `- ${f}`).join('\n')}
-${Object.keys(context.currentFiles).length > 20 ? `... 共 ${Object.keys(context.currentFiles).length} 个文件` : ''}
-` : '## 项目状态\n这是一个新项目，从零开始。'}
+${context?.currentFiles && Object.keys(context.currentFiles).length > 0 ? `现有文件：${Object.keys(context.currentFiles).slice(0, 10).join(', ')}` : '新项目'}
 
 ---
 
-请按以下结构输出技术方案（使用 Markdown 格式，打字机方式逐字输出）：
+## 输出格式（严格遵守，不要多余内容）
 
-# 技术实现方案
+## 方案概述
+用1-2句话描述实现思路
 
-## 1. 需求分析
-- 核心功能点列表
-- 用户使用场景描述
-- 关键业务逻辑梳理
+## 技术栈
+React + Tailwind CSS + Vite
 
-## 2. 技术选型
-- 前端技术栈（框架、UI库、状态管理等）
-- 后端技术栈（如需要）
-- 第三方库和工具
-- 为什么选择这些技术？
-
-## 3. 架构设计
-- 整体架构图（用 Mermaid 或文字描述）
-- 模块划分
-- 数据流设计
-- 状态管理方案
-
-## 4. 文件拆解
-详细列出需要创建的文件，格式如下：
-
-### 文件清单
+## 文件清单
 \`\`\`json
-{
-  "files": [
-    {
-      "path": "src/App.jsx",
-      "description": "应用主入口，配置路由和全局状态",
-      "type": "page",
-      "dependencies": ["src/components/Header.jsx"],
-      "isCritical": true,
-      "estimatedLines": 60
-    }
-  ]
-}
+{"files":[{"path":"package.json","desc":"配置"},{"path":"src/index.css","desc":"样式"},{"path":"src/App.jsx","desc":"主组件"}]}
 \`\`\`
 
-## 5. 实现步骤
-1. 第一步：...
-2. 第二步：...
-3. ...
-
-## 6. 关键技术点
-- 难点1：...解决方案：...
-- 难点2：...解决方案：...
-
-## 7. 注意事项和风险点
-- ⚠️ 风险1：...
-- ⚠️ 风险2：...
-
-## 8. 预估工作量
-- 预计文件数：X 个
-- 预计开发时间：Y 分钟
-- 复杂度评级：低/中/高
+## 预估
+X个文件 / Y分钟 / 复杂度
 
 ---
 
-🎯 关键要求：
-1. 方案要详细、具体、可执行
-2. 文件清单必须是有效的 JSON 格式
-3. 考虑代码复用和最佳实践
-4. 突出关键技术点和风险
-5. 打字机方式输出，让用户看到思考过程`;
+🚨 要求：
+1. 不要生成代码
+2. 文件按依赖顺序（配置→样式→组件→页面）
+3. JSON必须有效，紧凑格式
+4. 总输出控制在800字以内`;
 
   try {
     const result = await streamText({
@@ -3549,6 +4050,12 @@ ${Object.keys(context.currentFiles).length > 20 ? `... 共 ${Object.keys(context
     }
 
     console.log(`[generatePlan] 方案生成完成，长度: ${planContent.length}`);
+
+    // ⚠️ 检查方案内容是否为空（可能是 API 调用失败）
+    if (!planContent || planContent.trim().length === 0) {
+      console.error('[generatePlan] ❌ 方案内容为空，可能是 API 调用失败（rate limit 或网络错误）');
+      throw new Error('技术方案生成失败：API 返回空内容，请稍后重试或切换模型');
+    }
 
     // 从方案中提取文件清单（必要时兜底单独生成）
     await sendProgress({ type: 'status', message: '正在从方案中提取文件清单...' });

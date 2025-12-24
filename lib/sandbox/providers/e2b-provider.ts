@@ -2,6 +2,7 @@ import { Sandbox } from '@e2b/code-interpreter';
 import { SandboxProvider, SandboxInfo, CommandResult } from '../types';
 // SandboxProviderConfig available through parent class
 import { appConfig } from '@/config/app.config';
+import { TAILWIND_CONFIG, INDEX_CSS, VITE_CONFIG, UTILS_JS } from './e2b-sandbox-setup';
 
 export class E2BProvider extends SandboxProvider {
   private existingFiles: Set<string> = new Set();
@@ -233,7 +234,27 @@ export class E2BProvider extends SandboxProvider {
       throw new Error('No active sandbox');
     }
 
-    
+    // Helper function to execute code with retry
+    const runCodeWithRetry = async (code: string, maxRetries = 3, delayMs = 2000) => {
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          return await this.sandbox.runCode(code);
+        } catch (error: any) {
+          const isNetworkError = error.message?.includes('fetch failed') ||
+                                 error.message?.includes('ECONNRESET') ||
+                                 error.code === 'ECONNRESET';
+
+          if (isNetworkError && attempt < maxRetries) {
+            console.log(`[E2BProvider] Network error on attempt ${attempt}/${maxRetries}, retrying in ${delayMs}ms...`);
+            await new Promise(resolve => setTimeout(resolve, delayMs));
+            continue;
+          }
+          throw error;
+        }
+      }
+    };
+
+
     // Write all files in a single Python script
     const setupScript = `
 import os
@@ -243,6 +264,14 @@ print('Setting up React app with Vite and Tailwind...')
 
 # Create directory structure
 os.makedirs('/home/user/app/src', exist_ok=True)
+os.makedirs('/home/user/app/src/lib', exist_ok=True)
+
+# lib/utils.js
+utils_js = """${UTILS_JS}"""
+
+with open('/home/user/app/src/lib/utils.js', 'w') as f:
+    f.write(utils_js)
+print('✓ src/lib/utils.js')
 
 # Package.json
 package_json = {
@@ -256,7 +285,10 @@ package_json = {
     },
     "dependencies": {
         "react": "^18.2.0",
-        "react-dom": "^18.2.0"
+        "react-dom": "^18.2.0",
+        "clsx": "^2.0.0",
+        "tailwind-merge": "^2.0.0",
+        "lucide-react": "^0.292.0"
     },
     "devDependencies": {
         "@vitejs/plugin-react": "^4.0.0",
@@ -272,36 +304,14 @@ with open('/home/user/app/package.json', 'w') as f:
 print('✓ package.json')
 
 # Vite config
-vite_config = """import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-
-export default defineConfig({
-  plugins: [react()],
-  server: {
-    host: '0.0.0.0',
-    port: 5173,
-    strictPort: true,
-    hmr: false,
-    allowedHosts: ['.e2b.app', '.e2b.dev', '.vercel.run', 'localhost', '127.0.0.1']
-  }
-})"""
+vite_config = """${VITE_CONFIG}"""
 
 with open('/home/user/app/vite.config.js', 'w') as f:
     f.write(vite_config)
 print('✓ vite.config.js')
 
 # Tailwind config
-tailwind_config = """/** @type {import('tailwindcss').Config} */
-export default {
-  content: [
-    "./index.html",
-    "./src/**/*.{js,ts,jsx,tsx}",
-  ],
-  theme: {
-    extend: {},
-  },
-  plugins: [],
-}"""
+tailwind_config = """${TAILWIND_CONFIG}"""
 
 with open('/home/user/app/tailwind.config.js', 'w') as f:
     f.write(tailwind_config)
@@ -346,7 +356,7 @@ import './index.css'
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <App />
-  </React.StrictMode>,
+  </React.StrictMode>
 )"""
 
 with open('/home/user/app/src/main.jsx', 'w') as f:
@@ -374,14 +384,7 @@ with open('/home/user/app/src/App.jsx', 'w') as f:
 print('✓ src/App.jsx')
 
 # Index.css
-index_css = """@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
-body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-  background-color: rgb(17 24 39);
-}"""
+index_css = """${INDEX_CSS}"""
 
 with open('/home/user/app/src/index.css', 'w') as f:
     f.write(index_css)
@@ -390,10 +393,10 @@ print('✓ src/index.css')
 print('\\nAll files created successfully!')
 `;
 
-    await this.sandbox.runCode(setupScript);
-    
+    await runCodeWithRetry(setupScript);
+
     // Install dependencies
-    await this.sandbox.runCode(`
+    await runCodeWithRetry(`
 import subprocess
 
 print('Installing npm packages...')
@@ -409,9 +412,9 @@ if result.returncode == 0:
 else:
     print(f'⚠ Warning: npm install had issues: {result.stderr}')
     `);
-    
+
     // Start Vite dev server
-    await this.sandbox.runCode(`
+    await runCodeWithRetry(`
 import subprocess
 import os
 import time

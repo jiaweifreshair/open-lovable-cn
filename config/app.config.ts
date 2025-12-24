@@ -51,90 +51,39 @@ export const appConfig = {
   // AI Model Configuration
   ai: {
     // Default AI model - 使用 Gemini 3 Pro Preview (cs.imds.ai 代理)
+    // DeepSeek 格式解析存在问题，暂时使用 Gemini
     defaultModel: 'gemini-3-pro-preview',
 
-    // Available models - 国外模型优先，国内模型作为后备
+    // Available models - 精简版
     availableModels: [
-      // ========================================
-      // 🌐 International Models (优先推荐)
-      // ========================================
-      'anthropic/claude-sonnet-4-20250514',  // 🥇 首选 - Claude Sonnet 4
-      'google/gemini-2.0-flash-exp',         // 🥈 次选 - Gemini 2.0 Flash
-      'openai/gpt-5',                        // 🥉 GPT-5
-      'moonshotai/kimi-k2-instruct-0905',    // Kimi K2 (Groq托管)
-
-      // ========================================
       // 🚀 Gemini GCA Models (cs.imds.ai 代理)
-      // ========================================
-      // 需配置: CODE_ASSIST_ENDPOINT + GOOGLE_CLOUD_ACCESS_TOKEN
       'gemini-3-pro-preview',                // Gemini 3 Pro Preview (最新)
       'gemini-2.5-pro-preview-05-06',        // Gemini 2.5 Pro Preview
       'gemini-2.0-flash-exp',                // Gemini 2.0 Flash Exp
 
-      // ========================================
-      // 🇨🇳 Chinese Models (后备方案 - 七牛云托管)
-      // ========================================
-      // Note: 当国外模型不可用时自动切换
-      // 配置: OPENAI_BASE_URL=https://api.qnaigc.com/v1
-
-      // Qiniu Cloud - Qwen Series (通义千问系列)
-      'qwen3-max',                   // 🇨🇳 通义千问 3 Max - 最强推理
-      'qwen3-235b-a22b-instruct-2507',  // 🇨🇳 通义千问 3 235B - 旗舰版
-      'qwen-turbo',                  // 🇨🇳 通义千问 Turbo - 快速响应
-      'qwq-plus',                    // 🇨🇳 QwQ Plus - 推理增强
-
-      // DeepSeek (深度求索)
-      'deepseek-v3.1',               // 🇨🇳 DeepSeek V3.1 - 最新版本
-      'deepseek-r1',                 // 🇨🇳 DeepSeek R1 - 推理模型
-      'deepseek-v3',                 // 🇨🇳 DeepSeek V3 - 通用对话
-
-      // Zhipu AI (智谱)
-      'glm-4.5',                     // 🇨🇳 智谱 GLM-4.5
-      'glm-4.5-air',                 // 🇨🇳 智谱 GLM-4.5 Air - 快速版
-
-      // Moonshot AI (月之暗面)
-      'kimi-k2',                     // 🇨🇳 Kimi K2 - 长文本处理
+      // 🇨🇳 DeepSeek (七牛云托管)
+      'deepseek/deepseek-v3.2-251201',       // DeepSeek V3.2 - 默认
     ],
 
-    // Model display names - 显示名称（带优先级标记）
+    // Model display names - 精简版
     modelDisplayNames: {
-      // 🌐 International Models (优先推荐)
-      'anthropic/claude-sonnet-4-20250514': '🥇 Claude Sonnet 4',
-      'google/gemini-2.0-flash-exp': '🥈 Gemini 2.0 Flash',
-      'openai/gpt-5': '🥉 GPT-5',
-      'moonshotai/kimi-k2-instruct-0905': 'Kimi K2 (Groq)',
-
-      // 🚀 Gemini GCA Models (cs.imds.ai)
+      // 🚀 Gemini GCA Models (cs.imds.ai 代理)
       'gemini-3-pro-preview': '🚀 Gemini 3 Pro Preview',
       'gemini-2.5-pro-preview-05-06': '🚀 Gemini 2.5 Pro',
-      'gemini-2.0-flash-exp': '🚀 Gemini 2.0 Flash (GCA)',
+      'gemini-2.0-flash-exp': '🚀 Gemini 2.0 Flash',
 
-      // Chinese Models - Qiniu Cloud (七牛云实际支持的模型)
-      'qwen3-max': '🇨🇳 通义千问 3 Max',
-      'qwen3-235b-a22b-instruct-2507': '🇨🇳 通义千问 3 235B',
-      'qwen-turbo': '🇨🇳 通义千问 Turbo',
-      'qwq-plus': '🇨🇳 QwQ Plus 推理',
-      'deepseek-v3.1': '🇨🇳 DeepSeek V3.1',
-      'deepseek-r1': '🇨🇳 DeepSeek R1 推理',
-      'deepseek-v3': '🇨🇳 DeepSeek V3',
-      'glm-4.5': '🇨🇳 智谱 GLM-4.5',
-      'glm-4.5-air': '🇨🇳 智谱 GLM-4.5 Air',
-      'kimi-k2': '🇨🇳 Kimi K2',
+      // 🇨🇳 DeepSeek (七牛云)
+      'deepseek/deepseek-v3.2-251201': '🇨🇳 DeepSeek V3.2 ⭐',
     } as Record<string, string>,
     
     // Model API configuration
-    modelApiConfig: {
-      'moonshotai/kimi-k2-instruct-0905': {
-        provider: 'groq',
-        model: 'moonshotai/kimi-k2-instruct-0905'
-      }
-    },
+    modelApiConfig: {} as Record<string, { provider: string; model: string }>,
     
     // Temperature settings for non-reasoning models
     defaultTemperature: 0.7,
     
-    // Max tokens for code generation
-    maxTokens: 30000,
+    // Max tokens for code generation (increased for complex pages with large mock data)
+    maxTokens: 64000,
     
     // Max tokens for truncation recovery
     truncationRecoveryMaxTokens: 8000,

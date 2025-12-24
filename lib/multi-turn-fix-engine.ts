@@ -382,6 +382,7 @@ export function extractFiles(generatedCode: string): FileInfo[] {
 
 /**
  * 验证文件依赖完整性
+ * 🔥 增强版：包括 CSS 文件验证
  */
 export function validateDependencies(files: FileInfo[]): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
@@ -415,8 +416,27 @@ export function validateDependencies(files: FileInfo[]): ValidationIssue[] {
     while ((importMatch = importRegex.exec(file.content)) !== null) {
       const importPath = importMatch[1];
 
-      // 跳过样式文件导入
-      if (importPath.endsWith('.css') || importPath.endsWith('.scss')) continue;
+      // 🔥 CSS 文件也需要验证（不再跳过）
+      if (importPath.endsWith('.css') || importPath.endsWith('.scss')) {
+        const baseDir = file.path.substring(0, file.path.lastIndexOf('/'));
+        const targetPath = resolveImportPath(baseDir, importPath);
+
+        // 检查 CSS 文件是否存在
+        const cssExists = normalizedPaths.has(targetPath) ||
+                          normalizedPaths.has('src/' + targetPath) ||
+                          normalizedPaths.has(targetPath.replace('src/', ''));
+
+        if (!cssExists) {
+          issues.push({
+            type: 'missing_import',
+            severity: 'warning', // CSS 缺失是 warning，可以自动补全
+            file: file.path,
+            message: `导入了不存在的样式文件: ${importPath}`,
+            suggestion: `需要创建文件: ${targetPath}`
+          });
+        }
+        continue;
+      }
 
       // 计算目标文件路径
       const baseDir = file.path.substring(0, file.path.lastIndexOf('/'));
@@ -450,6 +470,93 @@ export function validateDependencies(files: FileInfo[]): ValidationIssue[] {
   }
 
   return issues;
+}
+
+/**
+ * 🔥 自动补全缺失的文件
+ *
+ * 根据依赖验证结果，自动生成缺失的文件：
+ * - CSS 文件：生成 Tailwind 基础样式
+ * - JS/JSX 文件：生成空的占位组件（需要后续 AI 补全）
+ */
+export interface AutoCompleteResult {
+  /** 补全的文件列表 */
+  completedFiles: FileInfo[];
+  /** 无法自动补全的问题 */
+  remainingIssues: ValidationIssue[];
+}
+
+export function autoCompleteMissingFiles(
+  files: FileInfo[],
+  issues: ValidationIssue[]
+): AutoCompleteResult {
+  const completedFiles: FileInfo[] = [];
+  const remainingIssues: ValidationIssue[] = [];
+  const existingPaths = new Set(files.map(f => f.path));
+
+  for (const issue of issues) {
+    if (issue.type !== 'missing_import') {
+      remainingIssues.push(issue);
+      continue;
+    }
+
+    // 从 suggestion 中提取目标路径
+    const pathMatch = issue.suggestion?.match(/需要创建文件:\s*([^\s]+)/);
+    if (!pathMatch) {
+      remainingIssues.push(issue);
+      continue;
+    }
+
+    let targetPath = pathMatch[1];
+
+    // 规范化路径
+    if (!targetPath.startsWith('src/')) {
+      targetPath = 'src/' + targetPath;
+    }
+
+    // 避免重复创建
+    if (existingPaths.has(targetPath)) {
+      continue;
+    }
+
+    // 🔥 根据文件类型生成默认内容
+    if (targetPath.endsWith('.css') || targetPath.endsWith('.scss')) {
+      // CSS 文件：生成 Tailwind 基础样式
+      const cssContent = targetPath.includes('index.css')
+        ? `@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 自动生成的基础样式文件 */
+`
+        : `/* 自动生成的样式文件: ${targetPath} */
+/* 建议使用 Tailwind CSS 类而非自定义 CSS */
+`;
+
+      completedFiles.push({
+        path: targetPath,
+        content: cssContent
+      });
+      existingPaths.add(targetPath);
+      console.log(`[autoCompleteMissingFiles] ✅ 自动生成 CSS 文件: ${targetPath}`);
+    } else if (targetPath.match(/\.(jsx?|tsx?)$/)) {
+      // JS/JSX 文件：生成占位组件（需要后续处理）
+      // 这种情况不自动生成，而是标记为需要 AI 补全
+      remainingIssues.push({
+        ...issue,
+        severity: 'error',
+        suggestion: `需要 AI 生成组件: ${targetPath}`
+      });
+      console.log(`[autoCompleteMissingFiles] ⚠️ 需要 AI 补全组件: ${targetPath}`);
+    } else {
+      remainingIssues.push(issue);
+    }
+  }
+
+  return {
+    completedFiles,
+    remainingIssues
+  };
 }
 
 /**
@@ -976,13 +1083,41 @@ export function validateCompleteness(files: FileInfo[]): ValidationIssue[] {
         content.trim().endsWith('/*') ||
         content.trim().endsWith(',') ||
         content.trim().endsWith('(') ||
-        content.trim().endsWith('{')) {
+        content.trim().endsWith('{') ||
+        content.trim().endsWith('="') ||
+        content.trim().endsWith("='") ||
+        content.trim().endsWith('=`')) {
       issues.push({
         type: 'truncated_file',
         severity: 'error',
         file: file.path,
         message: '文件在不完整的位置结束',
         suggestion: '需要补全文件的剩余部分'
+      });
+    }
+
+    // 🔥 检查引号是否匹配（检测在字符串中间截断的情况）
+    const doubleQuotes = (content.match(/"/g) || []).length;
+    const singleQuotes = (content.match(/'/g) || []).length;
+    const backticks = (content.match(/`/g) || []).length;
+
+    if (doubleQuotes % 2 !== 0) {
+      issues.push({
+        type: 'truncated_file',
+        severity: 'error',
+        file: file.path,
+        message: `文件可能在字符串中间截断: 双引号数量为奇数 (${doubleQuotes})`,
+        suggestion: '需要补全截断的字符串'
+      });
+    }
+
+    if (backticks % 2 !== 0) {
+      issues.push({
+        type: 'truncated_file',
+        severity: 'error',
+        file: file.path,
+        message: `文件可能在模板字符串中间截断: 反引号数量为奇数 (${backticks})`,
+        suggestion: '需要补全截断的模板字符串'
       });
     }
 

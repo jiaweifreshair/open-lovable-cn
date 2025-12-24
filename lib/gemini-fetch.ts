@@ -1,7 +1,7 @@
 
 export const geminiFetch = async (url: string | Request | URL, options?: RequestInit) => {
   const requestUrl = url.toString();
-  
+
   // Only intercept requests to the Gemini proxy
   if (!requestUrl.includes('cs.imds.ai')) {
     return fetch(url, options);
@@ -14,12 +14,12 @@ export const geminiFetch = async (url: string | Request | URL, options?: Request
   if (options?.body && typeof options.body === 'string') {
     try {
       const body = JSON.parse(options.body);
-      
+
       // Merge system prompt
       if (body.messages) {
         const newMessages: any[] = [];
         let systemPrompt = '';
-        
+
         for (const msg of body.messages) {
           if (msg.role === 'system') {
             systemPrompt += (systemPrompt ? '\n' : '') + msg.content;
@@ -31,12 +31,12 @@ export const geminiFetch = async (url: string | Request | URL, options?: Request
             newMessages.push(msg);
           }
         }
-        
+
         // If system prompt is still there (no user message?), add it as user message
         if (systemPrompt) {
             newMessages.push({ role: 'user', content: systemPrompt });
         }
-        
+
         body.messages = newMessages;
       }
 
@@ -44,18 +44,47 @@ export const geminiFetch = async (url: string | Request | URL, options?: Request
       if (body.max_tokens) {
         // Gemini uses maxOutputTokens, but proxy might map it. Keep it for now.
       }
-      
+
       newOptions.body = JSON.stringify(body);
     } catch (e) {
       console.error('[GeminiFetch] Error parsing body:', e);
     }
   }
 
-  // 2. Call Original Fetch
-  const response = await fetch(url, newOptions);
+  // 2. Call Original Fetch with retry for transient errors
+  const maxRetries = 3;
+  // 可重试的 HTTP 状态码：429(速率限制), 502(网关错误), 503(服务不可用), 504(网关超时)
+  const retryableStatuses = [429, 502, 503, 504];
 
-  // 3. Transform Response Stream (Gemini -> OpenAI)
-  if (response.ok && response.body) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    const response = await fetch(url, newOptions);
+
+    // 处理可重试的错误状态码
+    if (retryableStatuses.includes(response.status)) {
+      const retryAfter = response.headers.get('Retry-After');
+      const baseDelay = response.status === 429 ? 2000 : 3000; // 504超时等待更长
+      const delayMs = retryAfter ? parseInt(retryAfter) * 1000 : Math.min(baseDelay * Math.pow(2, attempt - 1), 15000);
+      console.warn(`[GeminiFetch] ${response.status} error (attempt ${attempt}/${maxRetries}), retrying in ${delayMs}ms...`);
+
+      if (attempt < maxRetries) {
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+        continue;
+      }
+
+      // 最后一次重试也失败，抛出明确的错误
+      const errorBody = await response.text().catch(() => '');
+      throw new Error(`Gemini API error (${response.status}) after ${maxRetries} retries. Response: ${errorBody.substring(0, 200)}`);
+    }
+
+    // 处理其他错误状态码
+    if (!response.ok) {
+      const errorBody = await response.text().catch(() => '');
+      console.error(`[GeminiFetch] API error ${response.status}:`, errorBody.substring(0, 500));
+      throw new Error(`Gemini API error (${response.status}): ${errorBody.substring(0, 200)}`);
+    }
+
+    // 3. Transform Response Stream (Gemini -> OpenAI)
+    if (response.body) {
     const reader = response.body.getReader();
     const encoder = new TextEncoder();
     const decoder = new TextDecoder();
@@ -159,7 +188,12 @@ export const geminiFetch = async (url: string | Request | URL, options?: Request
       status: response.status,
       statusText: response.statusText,
     });
+    }
+
+    // 没有 body 的情况，直接返回响应
+    return response;
   }
 
-  return response;
+  // 理论上不会到达这里，但为了类型安全
+  throw new Error('[GeminiFetch] Unexpected: exhausted all retries without result');
 };
