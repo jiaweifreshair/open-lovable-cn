@@ -413,14 +413,29 @@ function AISandboxPage() {
   }, [sandboxData]);
 
   // 心跳检测：每60秒发送一次心跳，防止沙箱被误判为超时
+  // 🔥 优化：添加错误容忍机制，避免重复报错刷屏
   useEffect(() => {
     // 只有在沙箱存在时才发送心跳
     if (!sandboxData?.sandboxId) {
       return;
     }
 
-    const sendHeartbeat = async () => {
+    // 🔥 心跳状态追踪
+    let consecutiveFailures = 0;
+    let lastErrorLogged = false;
+    const MAX_CONSECUTIVE_FAILURES = 3;
+    const HEARTBEAT_INTERVAL = 60 * 1000; // 60秒
+
+    const sendHeartbeat = async (): Promise<boolean> => {
+      // 🔥 页面隐藏时跳过心跳（节省资源）
+      if (document.hidden) {
+        return true; // 返回成功，不计入失败
+      }
+
       try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10秒超时
+
         const response = await fetch('/api/sandbox-heartbeat', {
           method: 'POST',
           headers: {
@@ -428,32 +443,85 @@ function AISandboxPage() {
           },
           body: JSON.stringify({
             sandboxId: sandboxData.sandboxId
-          })
+          }),
+          signal: controller.signal
         });
 
+        clearTimeout(timeoutId);
+
         if (!response.ok) {
-          console.error('[heartbeat] Failed to send heartbeat:', response.status);
-        } else {
-          console.log(`[heartbeat] 💓 Heartbeat sent for sandbox ${sandboxData.sandboxId}`);
+          // 🔥 只在首次失败时记录日志
+          if (!lastErrorLogged) {
+            console.warn('[heartbeat] ⚠️ Server returned error:', response.status);
+            lastErrorLogged = true;
+          }
+          return false;
         }
+
+        // 成功：重置失败计数
+        if (consecutiveFailures > 0) {
+          console.log('[heartbeat] ✅ Connection restored');
+        }
+        consecutiveFailures = 0;
+        lastErrorLogged = false;
+        return true;
+
       } catch (error) {
-        console.error('[heartbeat] Error sending heartbeat:', error);
+        // 🔥 网络错误处理：静默处理，避免刷屏
+        if (!lastErrorLogged) {
+          // 判断错误类型，只记录一次
+          if (error instanceof Error) {
+            if (error.name === 'AbortError') {
+              console.warn('[heartbeat] ⚠️ Request timeout (server may be restarting)');
+            } else if (error.message.includes('Failed to fetch')) {
+              console.warn('[heartbeat] ⚠️ Network error (server may be offline)');
+            } else {
+              console.warn('[heartbeat] ⚠️ Error:', error.message);
+            }
+          }
+          lastErrorLogged = true;
+        }
+        return false;
+      }
+    };
+
+    const heartbeatWithRetry = async () => {
+      const success = await sendHeartbeat();
+
+      if (!success) {
+        consecutiveFailures++;
+
+        // 🔥 连续失败过多时，延长间隔（指数退避）
+        if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES && !lastErrorLogged) {
+          console.warn(`[heartbeat] ⏸️ Pausing heartbeat after ${consecutiveFailures} failures (will retry in background)`);
+          lastErrorLogged = true;
+        }
       }
     };
 
     // 立即发送一次心跳（沙箱刚创建）
     console.log(`[heartbeat] Starting heartbeat for sandbox ${sandboxData.sandboxId}`);
-    sendHeartbeat();
+    heartbeatWithRetry();
 
     // 每60秒发送一次心跳
     const heartbeatInterval = setInterval(() => {
-      sendHeartbeat();
-    }, 60 * 1000); // 60秒
+      heartbeatWithRetry();
+    }, HEARTBEAT_INTERVAL);
 
-    // 清理定时器
+    // 🔥 页面可见性变化时恢复心跳
+    const handleVisibilityChange = () => {
+      if (!document.hidden && consecutiveFailures > 0) {
+        console.log('[heartbeat] 👁️ Page visible, retrying heartbeat...');
+        lastErrorLogged = false;
+        heartbeatWithRetry();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // 清理定时器和事件监听
     return () => {
-      console.log(`[heartbeat] Stopping heartbeat for sandbox ${sandboxData.sandboxId}`);
       clearInterval(heartbeatInterval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [sandboxData?.sandboxId]);
 
@@ -3162,8 +3230,8 @@ Tip: I automatically detect and install npm packages from your code imports (lik
               edited: false
             }
           ],
-          currentFile: undefined,
-          streamedCode: prev.streamedCode + `<file path="${fileResult!.path}">\n${fileResult!.content}\n</file>\n\n`
+          currentFile: undefined
+          // 不修改streamedCode - 它已经通过codeChunk事件实时更新了
         }));
       }
 
