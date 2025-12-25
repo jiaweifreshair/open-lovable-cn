@@ -2963,43 +2963,54 @@ Tip: I automatically detect and install npm packages from your code imports (lik
         throw new Error('响应体为空，无法接收方案数据');
       }
 
-      // Streaming 接收方案内容（打字机效果）
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let hasReceivedData = false;
-      let completeEventReceived = false;
+	      // Streaming 接收方案内容（打字机效果）
+	      const reader = response.body.getReader();
+	      const decoder = new TextDecoder();
+	      let hasReceivedData = false;
+	      let completeEventReceived = false;
+	      let receivedPlanTextLength = 0;
+	      let sseBuffer = '';
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) {
-          console.log('[generateTechnicalPlan] Stream 结束');
-          break;
-        }
+	      while (true) {
+	        const { done, value } = await reader.read();
+	        if (done) {
+	          console.log('[generateTechnicalPlan] Stream 结束');
+	          break;
+	        }
 
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n\n');
+	        sseBuffer += decoder.decode(value, { stream: true });
+	        const events = sseBuffer.split('\n\n');
+	        sseBuffer = events.pop() || '';
 
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              hasReceivedData = true;
+	        for (const rawEvent of events) {
+	          const line = rawEvent.trim();
+	          if (line.startsWith('data: ')) {
+	            try {
+	              const data = JSON.parse(line.slice(6));
+	              hasReceivedData = true;
 
-              // 实时更新方案内容（打字机效果）
-              if (data.type === 'plan_chunk') {
-                setPlanContent(prev => prev + data.chunk);
-              }
+	              // 实时更新方案内容（打字机效果）
+	              if (data.type === 'plan_chunk') {
+	                const delta = typeof data.chunk === 'string' ? data.chunk : '';
+	                receivedPlanTextLength += delta.length;
+	                setPlanContent(prev => prev + delta);
+	              }
 
-              // 方案生成完成 - plan 数据通过 SSE 事件传递
-              if (data.type === 'plan_complete' && data.plan) {
-                console.log('[generateTechnicalPlan] 方案生成完成');
-                completeEventReceived = true;
-                setPlanMode('complete');
-                setPlanSummary(data.plan.summary);
-                setSuggestedManifest(data.plan.suggestedManifest);
-                console.log('[generateTechnicalPlan] ✅ 技术方案生成完成，共 ', data.plan.suggestedManifest.length, ' 个文件');
-                addChatMessage(`技术方案已生成，共计划生成 ${data.plan.suggestedManifest.length} 个文件`, 'system');
-              }
+	              // 方案生成完成 - plan 数据通过 SSE 事件传递
+	              if (data.type === 'plan_complete' && data.plan) {
+	                console.log('[generateTechnicalPlan] 方案生成完成');
+	                completeEventReceived = true;
+	                setPlanMode('complete');
+	                if (typeof data.plan.content === 'string') {
+	                  receivedPlanTextLength = Math.max(receivedPlanTextLength, data.plan.content.length);
+	                  // ✅ 用服务端最终内容覆盖，避免 SSE 分片/节流导致的丢字或重复
+	                  setPlanContent(data.plan.content);
+	                }
+	                setPlanSummary(data.plan.summary);
+	                setSuggestedManifest(data.plan.suggestedManifest);
+	                console.log('[generateTechnicalPlan] ✅ 技术方案生成完成，共 ', data.plan.suggestedManifest.length, ' 个文件');
+	                addChatMessage(`技术方案已生成，共计划生成 ${data.plan.suggestedManifest.length} 个文件`, 'system');
+	              }
 
               // 错误处理
               if (data.type === 'error') {
@@ -3021,15 +3032,15 @@ Tip: I automatically detect and install npm packages from your code imports (lik
         throw new Error('未收到任何方案数据，请检查网络连接');
       }
 
-      if (!completeEventReceived) {
-        console.warn('[generateTechnicalPlan] ⚠️ 未收到 plan_complete 事件，但已收到部分数据');
-        // 如果有内容但没有收到 complete 事件，仍然标记为完成
-        if (planContent.length > 100) {
-          setPlanMode('complete');
-          addChatMessage('技术方案生成完成（部分数据）', 'system');
-        } else {
-          throw new Error('方案数据不完整，请重试');
-        }
+	      if (!completeEventReceived) {
+	        console.warn('[generateTechnicalPlan] ⚠️ 未收到 plan_complete 事件，但已收到部分数据');
+	        // 如果有内容但没有收到 complete 事件，仍然标记为完成
+	        if (receivedPlanTextLength > 100) {
+	          setPlanMode('complete');
+	          addChatMessage('技术方案生成完成（部分数据）', 'system');
+	        } else {
+	          throw new Error('方案数据不完整，请重试');
+	        }
       }
 
     } catch (error) {

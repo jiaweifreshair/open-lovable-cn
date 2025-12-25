@@ -41,6 +41,24 @@ import type {
 // Force dynamic route to enable streaming
 export const dynamic = 'force-dynamic';
 
+/**
+ * 将 unknown 错误转换为可读字符串，避免把对象直接抛给用户或日志。
+ */
+function formatUnknownError(error: unknown): string {
+  if (error === null || error === undefined) return '';
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
+
+  try {
+    const json = JSON.stringify(error);
+    const message = json === undefined ? String(error) : json;
+    return message.length > 2000 ? message.slice(0, 2000) + '…' : message;
+  } catch {
+    const message = String(error);
+    return message.length > 2000 ? message.slice(0, 2000) + '…' : message;
+  }
+}
+
 // Check if we're using Vercel AI Gateway
 const isUsingAIGateway = !!process.env.AI_GATEWAY_API_KEY;
 const aiGatewayBaseURL = 'https://ai-gateway.vercel.sh/v1';
@@ -1362,15 +1380,18 @@ MORPH FAST APPLY MODE (EDIT-ONLY):
             console.log('[generate-ai-code-stream] Plan 模式完成，stream 将自然关闭');
             return; // 退出异步 IIFE，触发 finally 块
 
-          } catch (error) {
-            console.error('[generate-ai-code-stream] Plan generation failed:', error);
-            await sendProgress({
-              type: 'error',
-              error: `技术方案生成失败: ${(error as Error).message}`
-            });
-            throw error;
-          }
-        }
+	          } catch (error) {
+	            console.error('[generate-ai-code-stream] Plan generation failed:', error);
+	            const errorMessage = formatUnknownError(error);
+	            await sendProgress({
+	              type: 'error',
+	              error: errorMessage.includes('技术方案生成失败')
+	                ? errorMessage
+	                : `技术方案生成失败: ${errorMessage}`
+	            });
+	            throw error;
+	          }
+	        }
 
         // Mode: manifest - 只生成文件清单
         if (generation.mode === 'manifest') {
@@ -1397,15 +1418,18 @@ MORPH FAST APPLY MODE (EDIT-ONLY):
             // ✅ streaming API：manifest 数据已通过 SSE 发送，直接结束当前流程
             return; // 退出异步 IIFE，触发 finally 块关闭 stream
 
-          } catch (error) {
-            console.error('[generate-ai-code-stream] Manifest generation failed:', error);
-            await sendProgress({
-              type: 'error',
-              error: `文件清单生成失败: ${(error as Error).message}`
-            });
-            throw error;
-          }
-        }
+	          } catch (error) {
+	            console.error('[generate-ai-code-stream] Manifest generation failed:', error);
+	            const errorMessage = formatUnknownError(error);
+	            await sendProgress({
+	              type: 'error',
+	              error: errorMessage.includes('文件清单生成失败')
+	                ? errorMessage
+	                : `文件清单生成失败: ${errorMessage}`
+	            });
+	            throw error;
+	          }
+	        }
 
         // Mode: file - 生成单个文件
         if (generation.mode === 'file') {
@@ -1572,7 +1596,7 @@ If you're running out of space, generate FEWER files but make them COMPLETE.
 It's better to have 3 complete files than 10 incomplete files.`
             }
           ],
-                    maxOutputTokens: 64000, // 🔥 增加 token 限制，支持复杂页面（如淘宝风格、大量 Mock 数据）
+                    maxOutputTokens: 32000, // DeepSeek R1 限制为 32768，使用 32000 兼容所有模型
           stopSequences: [] // Don't stop early
           // Note: Neither Groq nor Anthropic models support tool/function calling in this context
           // We use XML tags for package detection instead
@@ -1615,6 +1639,7 @@ It's better to have 3 complete files than 10 incomplete files.`
           let isContinuationStart = loopCount > 1; // 🔥 Flag to detect start of continuation
           const maxRetries = 2;
           let fallbackToGeminiUsed = false;
+          let fallbackToDeepSeekUsed = false; // 🔄 双向 fallback：Gemini → DeepSeek
 
           // 流式生成超时控制：
           // - 首 token 超时：避免上游“无输出”导致前端一直卡住
@@ -1792,65 +1817,95 @@ ${continuationInstruction}
               }
 
               console.error(`[generate-ai-code-stream] Error calling streamText (attempt ${retryCount + 1}/${maxRetries + 1}):`, streamError);
-              
+
               const isGroqServiceError = isKimiGroq && streamError.message?.includes('Service unavailable');
               const isTimeout = streamError.message?.includes('timeout') || streamError.message?.includes('Timeout');
-              const isRetryableError = streamError.message?.includes('Service unavailable') || 
-                                      streamError.message?.includes('rate limit') ||
+              // 🔄 扩展可重试错误检测：包括 rate limit、服务不可用、超时、API 错误等
+              const errorMsg = streamError.message || '';
+              const isRetryableError = errorMsg.includes('Service unavailable') ||
+                                      errorMsg.includes('rate limit') ||
+                                      errorMsg.includes('Rate Limit') ||
+                                      errorMsg.includes('429') ||
+                                      errorMsg.includes('频率超限') ||
+                                      errorMsg.includes('500') ||
+                                      errorMsg.includes('502') ||
+                                      errorMsg.includes('503') ||
+                                      errorMsg.includes('API error') ||
                                       isTimeout;
-              
-              // 🔄 Intelligent Fallback to Gemini GCA
-              const canFallbackToGemini = isRetryableError && 
-                                          isUsingGeminiGCA && 
-                                          !isGeminiGCA && 
-                                          !fallbackToGeminiUsed;
 
-              if ((retryCount < maxRetries && isRetryableError) || canFallbackToGemini) {
+              // 🔄 双向 Fallback 机制
+              // 1. 非 Gemini 模型 → Gemini GCA
+              const canFallbackToGemini = isRetryableError &&
+                                          isUsingGeminiGCA &&
+                                          !isGeminiGCA &&
+                                          !fallbackToGeminiUsed &&
+                                          !fallbackToDeepSeekUsed;
+
+              // 2. Gemini GCA → DeepSeek (反向 fallback)
+              const canFallbackToDeepSeek = isRetryableError &&
+                                            isGeminiGCA &&
+                                            !fallbackToDeepSeekUsed &&
+                                            !fallbackToGeminiUsed;
+
+              if ((retryCount < maxRetries && isRetryableError) || canFallbackToGemini || canFallbackToDeepSeek) {
                 retryCount++;
-                
+
                 if (canFallbackToGemini) {
-                    console.log('[generate-ai-code-stream] ⚠️ Primary provider failed/timed out. Switching to Gemini GCA fallback...');
+                    console.log('[generate-ai-code-stream] ⚠️ Primary provider failed. Switching to Gemini GCA fallback...');
                     const fallbackModel = resolveGeminiGCADefaultModel();
                     streamOptions.model = geminiGCAProvider(fallbackModel);
                     actualModel = fallbackModel;
                     fallbackToGeminiUsed = true;
-                    // Reset retry count to allow attempt with new model
-                    if (retryCount > maxRetries) retryCount = maxRetries; 
-                    
-                     await sendProgress({ 
-                      type: 'info', 
-                      message: `Primary model timed out/failed. Switching to Gemini GCA (${fallbackModel})...` 
+                    if (retryCount > maxRetries) retryCount = maxRetries;
+
+                    await sendProgress({
+                      type: 'info',
+                      message: `模型切换：正在使用 Gemini GCA (${fallbackModel}) 重试...`
+                    });
+                } else if (canFallbackToDeepSeek) {
+                    // 🔄 Gemini 失败时切换到 DeepSeek
+                    console.log('[generate-ai-code-stream] ⚠️ Gemini GCA failed. Switching to DeepSeek fallback...');
+                    const fallbackModel = 'deepseek-r1';
+                    streamOptions.model = qiniuProvider(fallbackModel);
+                    actualModel = fallbackModel;
+                    fallbackToDeepSeekUsed = true;
+                    if (retryCount > maxRetries) retryCount = maxRetries;
+
+                    await sendProgress({
+                      type: 'info',
+                      message: `模型切换：Gemini 不可用，正在使用 DeepSeek R1 重试...`
                     });
                 } else {
                     console.log(`[generate-ai-code-stream] Retrying in ${retryCount * 2} seconds...`);
-                    await sendProgress({ 
-                      type: 'info', 
-                      message: `Service temporarily unavailable or timed out, retrying (attempt ${retryCount + 1}/${maxRetries + 1})...` 
+                    await sendProgress({
+                      type: 'info',
+                      message: `服务暂时不可用，正在重试 (${retryCount + 1}/${maxRetries + 1})...`
                     });
                     await new Promise(resolve => setTimeout(resolve, retryCount * 2000));
                 }
 
                 // If Groq fails, try switching to a fallback model (Old logic)
-                if (isGroqServiceError && retryCount === maxRetries && !fallbackToGeminiUsed) {
+                if (isGroqServiceError && retryCount === maxRetries && !fallbackToGeminiUsed && !fallbackToDeepSeekUsed) {
                   console.log('[generate-ai-code-stream] Groq service unavailable, falling back to GPT-4');
                   streamOptions.model = openai('gpt-4-turbo');
                   actualModel = 'gpt-4-turbo';
                 }
               } else {
                 // Final error, send to user
-                const errorMsg = streamError.message || 'Unknown error';
-                await sendProgress({ 
-                  type: 'error', 
-                  message: `Failed to initialize ${isGeminiGCA ? 'Gemini GCA' : isGoogle ? 'Gemini' : isAnthropic ? 'Claude' : isOpenAI ? 'GPT-5' : isKimiGroq ? 'Kimi (Groq)' : 'Groq'} streaming: ${errorMsg}` 
+                const finalErrorMsg = streamError.message || 'Unknown error';
+                const modelName = isGeminiGCA ? 'Gemini GCA' : isGoogle ? 'Gemini' : isAnthropic ? 'Claude' : isOpenAI ? 'GPT-5' : isKimiGroq ? 'Kimi (Groq)' : isChineseModel ? 'DeepSeek/Qwen' : 'AI';
+                await sendProgress({
+                  type: 'error',
+                  message: `${modelName} 生成失败: ${finalErrorMsg}`
                 });
-                
+
                 if (isGeminiGCA || fallbackToGeminiUsed) {
                   await sendProgress({
                     type: 'info',
-                    message: 'Tip: Check CODE_ASSIST_ENDPOINT and GOOGLE_CLOUD_ACCESS_TOKEN.'
+                    message: '提示：请检查 Gemini GCA 配置 (CODE_ASSIST_ENDPOINT, GOOGLE_CLOUD_ACCESS_TOKEN)'
                   });
                 }
-                
+
                 throw streamError;
               }
             }
@@ -1990,6 +2045,13 @@ ${continuationInstruction}
           // result is guaranteed to be defined here because of the throw in the retry loop
           const finishReason = await result!.finishReason;
           console.log(`[generate-ai-code-stream] Loop ${loopCount} finished with reason: ${finishReason}`);
+
+          // 🔄 过滤 DeepSeek R1 等推理模型的 <think> 标签（思考过程不应出现在生成代码中）
+          if (generatedCode.includes('<think>')) {
+            const originalLength = generatedCode.length;
+            generatedCode = generatedCode.replace(/<think>[\s\S]*?<\/think>/gi, '');
+            console.log(`[generate-ai-code-stream] 🧹 Filtered <think> tags: ${originalLength - generatedCode.length} chars removed`);
+          }
 
           // 🔥 CRITICAL FIX: Quick truncation detection BEFORE deciding on continuation
           // This ensures we continue even if finishReason is 'unknown' (Gemini) or other non-standard values
@@ -2885,7 +2947,13 @@ Provide the complete file content without any truncation. Include all necessary 
         }
       } finally {
         clearInterval(heartbeatInterval);
-        await writer.close();
+        // 安全关闭 writer，避免在 stream 已关闭时抛出异常
+        try {
+          await writer.close();
+        } catch (closeError) {
+          // Stream 可能已被关闭（客户端断开连接），忽略关闭错误
+          console.log('[generate-ai-code-stream] Stream already closed, skipping close()');
+        }
       }
     })();
     
@@ -2995,10 +3063,10 @@ ${Object.keys(context.currentFiles).map(f => `- ${f}`).join('\n')}
 
 只输出 JSON，不要其他解释。`;
 
-  const runModel = async (userContent: string): Promise<string> => {
-    const result = await streamText({
-      model: modelProvider(actualModel),
-      messages: [
+	  const runModel = async (userContent: string): Promise<string> => {
+	    const result = await streamText({
+	      model: modelProvider(actualModel),
+	      messages: [
         {
           role: 'system',
           content: '你是一个专业的前端架构师，擅长分析需求并规划项目文件结构。'
@@ -3007,27 +3075,43 @@ ${Object.keys(context.currentFiles).map(f => `- ${f}`).join('\n')}
           role: 'user',
           content: userContent
         }
-      ],
-      temperature: 0.2, // 尽量降低随机性，减少格式漂移/截断风险
-    });
+	      ],
+	      temperature: 0.2, // 尽量降低随机性，减少格式漂移/截断风险
+	    });
 
-    let text = '';
-    for await (const chunk of result.textStream) {
-      text += chunk;
-    }
-    return text;
-  };
+	    let text = '';
+	    let reasoningText = '';
+	    let lastStreamError: unknown = undefined;
+
+	    // 用 fullStream 捕获 error/reasoning，避免 textStream 吞掉底层异常导致“空内容”
+	    for await (const part of result.fullStream) {
+	      if (part.type === 'text-delta') {
+	        text += part.text;
+	      } else if (part.type === 'reasoning-delta') {
+	        reasoningText += part.text;
+	      } else if (part.type === 'error') {
+	        lastStreamError = part.error;
+	      }
+	    }
+
+	    if (text.trim().length > 0) return text;
+	    if (reasoningText.trim().length > 0) return reasoningText;
+
+	    const streamErrorMessage = formatUnknownError(lastStreamError);
+	    if (streamErrorMessage) throw new Error(streamErrorMessage);
+	    return text;
+	  };
 
   try {
     // 1) 首次生成
     const firstOutput = await runModel(manifestPrompt);
     console.log('[generateManifest] AI 输出:', firstOutput);
 
-    // ⚠️ 检查输出是否为空（可能是 API 调用失败）
-    if (!firstOutput || firstOutput.trim().length === 0) {
-      console.error('[generateManifest] ❌ AI 输出为空，可能是 API 调用失败（rate limit 或网络错误）');
-      throw new Error('文件清单生成失败：API 返回空内容，请稍后重试或切换模型');
-    }
+	    // ⚠️ 检查输出是否为空（可能是 API 调用失败）
+	    if (!firstOutput || firstOutput.trim().length === 0) {
+	      console.error('[generateManifest] ❌ AI 输出为空，可能是 API 调用失败（rate limit 或网络错误）');
+	      throw new Error('API 返回空内容，请稍后重试或切换模型');
+	    }
 
     const parsedFirst = parseManifestFromModelOutput(firstOutput);
     if (parsedFirst.length > 0) {
@@ -4012,10 +4096,10 @@ X个文件 / Y分钟 / 复杂度
 3. JSON必须有效，紧凑格式
 4. 总输出控制在800字以内`;
 
-  try {
-    const result = await streamText({
-      model: modelProvider(actualModel),
-      messages: [
+	  try {
+	    const result = await streamText({
+	      model: modelProvider(actualModel),
+	      messages: [
         {
           role: 'system',
           content: `你是一名资深全栈架构师，擅长需求分析、技术选型和架构设计。
@@ -4027,39 +4111,81 @@ X个文件 / Y分钟 / 复杂度
           content: planPrompt
         }
       ],
-      temperature: 0.7, // 适中温度平衡创造性和准确性
-    });
+	      temperature: 0.7, // 适中温度平衡创造性和准确性
+	    });
 
-    let planContent = '';
-    let lastChunkTime = Date.now();
+	    let planContent = '';
+	    let reasoningContent = '';
+	    let pendingChunk = '';
+	    let lastFlushTime = Date.now();
+	    let lastStreamError: unknown = undefined;
 
-    // Streaming 输出方案
-    for await (const chunk of result.textStream) {
-      planContent += chunk;
+	    // Streaming 输出方案
+	    for await (const part of result.fullStream) {
+	      if (part.type === 'text-delta') {
+	        planContent += part.text;
+	        pendingChunk += part.text;
+	      } else if (part.type === 'reasoning-delta') {
+	        // 部分推理模型/兼容 API 可能只输出 reasoning channel（text 为空）
+	        reasoningContent += part.text;
+	      } else if (part.type === 'error') {
+	        lastStreamError = part.error;
+	      }
 
-      // 每100ms或每50字符发送一次进度更新（打字机效果）
-      const now = Date.now();
-      if (now - lastChunkTime > 100 || chunk.length > 50) {
-        await sendProgress({
-          type: 'plan_chunk',
-          chunk: chunk,
-          totalLength: planContent.length
-        });
-        lastChunkTime = now;
-      }
-    }
+	      // 每100ms或每50字符发送一次进度更新（打字机效果）
+	      const now = Date.now();
+	      if (pendingChunk && (now - lastFlushTime > 100 || pendingChunk.length > 50)) {
+	        await sendProgress({
+	          type: 'plan_chunk',
+	          chunk: pendingChunk,
+	          totalLength: planContent.length
+	        });
+	        pendingChunk = '';
+	        lastFlushTime = now;
+	      }
+	    }
 
-    console.log(`[generatePlan] 方案生成完成，长度: ${planContent.length}`);
+	    // flush 剩余未发送的 chunk，避免丢字
+	    if (pendingChunk) {
+	      await sendProgress({
+	        type: 'plan_chunk',
+	        chunk: pendingChunk,
+	        totalLength: planContent.length
+	      });
+	    }
 
-    // ⚠️ 检查方案内容是否为空（可能是 API 调用失败）
-    if (!planContent || planContent.trim().length === 0) {
-      console.error('[generatePlan] ❌ 方案内容为空，可能是 API 调用失败（rate limit 或网络错误）');
-      throw new Error('技术方案生成失败：API 返回空内容，请稍后重试或切换模型');
-    }
+	    // ⚠️ 检查方案内容是否为空（可能是 API 调用失败）
+	    if (!planContent || planContent.trim().length === 0) {
+	      // 兜底：有些推理模型会把内容放在 reasoning channel
+	      if (reasoningContent.trim().length > 0) {
+	        console.warn('[generatePlan] ⚠️ text 为空，已使用 reasoning 作为方案内容（常见于推理模型/兼容 API）');
+	        planContent = reasoningContent;
+	      } else {
+	        const streamErrorMessage = formatUnknownError(lastStreamError);
+	        let finishReason: unknown = undefined;
+	        try {
+	          finishReason = await result.finishReason;
+	        } catch {
+	          // ignore
+	        }
+	        console.error('[generatePlan] ❌ 方案内容为空，可能是 API 调用失败（rate limit、网络错误或模型不可用）', {
+	          model: actualModel,
+	          rawModel: model,
+	          finishReason,
+	          streamErrorMessage
+	        });
+	        if (streamErrorMessage) {
+	          throw new Error(streamErrorMessage);
+	        }
+	        throw new Error('API 返回空内容，请稍后重试或切换模型');
+	      }
+	    }
+	
+	    console.log(`[generatePlan] 方案生成完成，长度: ${planContent.length}`);
 
-    // 从方案中提取文件清单（必要时兜底单独生成）
-    await sendProgress({ type: 'status', message: '正在从方案中提取文件清单...' });
-    let suggestedManifest: FileManifestItem[] = extractSuggestedManifestFromPlan(planContent);
+	    // 从方案中提取文件清单（必要时兜底单独生成）
+	    await sendProgress({ type: 'status', message: '正在从方案中提取文件清单...' });
+	    let suggestedManifest: FileManifestItem[] = extractSuggestedManifestFromPlan(planContent);
 
     if (suggestedManifest.length === 0) {
       console.warn('[generatePlan] ⚠️ 未能从方案中解析出文件清单，尝试单独生成 manifest 兜底...');
@@ -4104,7 +4230,24 @@ X个文件 / Y分钟 / 复杂度
 
   } catch (error) {
     console.error('[generatePlan] 生成技术方案失败:', error);
-    throw new Error(`技术方案生成失败: ${(error as Error).message}`);
+    const errorMessage = (error as Error).message;
+
+    // 检测 rate limit 相关错误，提供更友好的提示
+    const isRateLimitError = errorMessage.includes('429') ||
+                            errorMessage.includes('Rate Limit') ||
+                            errorMessage.includes('频率超限') ||
+                            errorMessage.includes('too many requests');
+
+    if (isRateLimitError) {
+      throw new Error('API 请求频率超限，请等待 30 秒后重试，或切换其他模型（如 Claude/GPT）');
+    }
+
+    // 如果错误信息已经包含"技术方案生成失败"，直接传递，避免重复
+    if (errorMessage.includes('技术方案生成失败')) {
+      throw error;
+    }
+
+    throw new Error(`技术方案生成失败: ${errorMessage}`);
   }
 }
 

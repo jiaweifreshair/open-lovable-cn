@@ -88,10 +88,12 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
+    "@executeautomation/playwright-mcp-server": "^1.0.12",
     "@types/lodash-es": "^4.17.12",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "chrome-devtools-mcp": "^0.12.1",
     "eslint": "^9",
     "eslint-config-next": "15.4.3",
     "postcss": "^8.5.6",

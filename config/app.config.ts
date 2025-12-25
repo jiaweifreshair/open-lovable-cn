@@ -50,30 +50,44 @@ export const appConfig = {
   
   // AI Model Configuration
   ai: {
-    // Default AI model - 使用 Gemini 3 Pro Preview (cs.imds.ai 代理)
-    // DeepSeek 格式解析存在问题，暂时使用 Gemini
-    defaultModel: 'gemini-3-pro-preview',
+    // Default AI model - 使用 DeepSeek R1 (推理模型，代码质量更高)
+    // Gemini GCA (cs.imds.ai) 经常遇到 rate limit，作为备用
+    defaultModel: 'deepseek-r1',
 
     // Available models - 精简版
     availableModels: [
-      // 🚀 Gemini GCA Models (cs.imds.ai 代理)
-      'gemini-3-pro-preview',                // Gemini 3 Pro Preview (最新)
-      'gemini-2.5-pro-preview-05-06',        // Gemini 2.5 Pro Preview
-      'gemini-2.0-flash-exp',                // Gemini 2.0 Flash Exp
+      // 🇨🇳 DeepSeek (七牛云托管) - 推荐
+      'deepseek-v3',                           // DeepSeek V3 - 默认推荐
+      'deepseek-v3.1',                         // DeepSeek V3.1
+      'deepseek-r1',                           // DeepSeek R1 (推理模型)
 
-      // 🇨🇳 DeepSeek (七牛云托管)
-      'deepseek/deepseek-v3.2-251201',       // DeepSeek V3.2 - 默认
+      // 🇨🇳 通义千问 (七牛云托管)
+      'qwen3-max',                             // Qwen3 Max
+      'qwen3-max-preview',                     // Qwen3 Max Preview
+
+      // 🇨🇳 Kimi (七牛云托管)
+      'kimi-k2',                               // Kimi K2
+
+      // 🚀 Gemini GCA Models (cs.imds.ai 代理) - 备用
+      'gemini-3-pro-preview',                  // Gemini 3 Pro Preview
     ],
 
     // Model display names - 精简版
     modelDisplayNames: {
-      // 🚀 Gemini GCA Models (cs.imds.ai 代理)
-      'gemini-3-pro-preview': '🚀 Gemini 3 Pro Preview',
-      'gemini-2.5-pro-preview-05-06': '🚀 Gemini 2.5 Pro',
-      'gemini-2.0-flash-exp': '🚀 Gemini 2.0 Flash',
+      // 🇨🇳 DeepSeek (七牛云) - 推荐
+      'deepseek-v3': '🇨🇳 DeepSeek V3 ⭐',
+      'deepseek-v3.1': '🇨🇳 DeepSeek V3.1',
+      'deepseek-r1': '🧠 DeepSeek R1 (推理)',
 
-      // 🇨🇳 DeepSeek (七牛云)
-      'deepseek/deepseek-v3.2-251201': '🇨🇳 DeepSeek V3.2 ⭐',
+      // 🇨🇳 通义千问 (七牛云)
+      'qwen3-max': '🇨🇳 Qwen3 Max',
+      'qwen3-max-preview': '🇨🇳 Qwen3 Max Preview',
+
+      // 🇨🇳 Kimi (七牛云)
+      'kimi-k2': '🇨🇳 Kimi K2',
+
+      // 🚀 Gemini GCA Models (备用)
+      'gemini-3-pro-preview': '🚀 Gemini 3 Pro (备用)',
     } as Record<string, string>,
     
     // Model API configuration
@@ -82,8 +96,8 @@ export const appConfig = {
     // Temperature settings for non-reasoning models
     defaultTemperature: 0.7,
     
-    // Max tokens for code generation (increased for complex pages with large mock data)
-    maxTokens: 64000,
+    // Max tokens for code generation (DeepSeek R1 限制为 32768)
+    maxTokens: 32000,
     
     // Max tokens for truncation recovery
     truncationRecoveryMaxTokens: 8000,

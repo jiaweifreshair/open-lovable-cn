@@ -80,7 +80,24 @@ export const geminiFetch = async (url: string | Request | URL, options?: Request
     if (!response.ok) {
       const errorBody = await response.text().catch(() => '');
       console.error(`[GeminiFetch] API error ${response.status}:`, errorBody.substring(0, 500));
-      throw new Error(`Gemini API error (${response.status}): ${errorBody.substring(0, 200)}`);
+
+      // 检测代理服务器包装的 429 错误（代理可能将 429 包装成 500 返回）
+      const isWrapped429 = errorBody.includes('429') ||
+                          errorBody.toLowerCase().includes('rate limit') ||
+                          errorBody.toLowerCase().includes('too many requests');
+
+      if (isWrapped429 && attempt < maxRetries) {
+        const delayMs = Math.min(2000 * Math.pow(2, attempt - 1), 15000);
+        console.warn(`[GeminiFetch] Detected wrapped 429 in ${response.status} (attempt ${attempt}/${maxRetries}), retrying in ${delayMs}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+        continue;
+      }
+
+      // 提供更清晰的错误信息
+      const errorMessage = isWrapped429
+        ? `API 请求频率超限 (Rate Limit)，请稍后重试或切换其他模型`
+        : `Gemini API error (${response.status}): ${errorBody.substring(0, 200)}`;
+      throw new Error(errorMessage);
     }
 
     // 3. Transform Response Stream (Gemini -> OpenAI)
