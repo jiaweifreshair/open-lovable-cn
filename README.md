@@ -61,34 +61,39 @@ Open [http://localhost:3000](http://localhost:3000)
 
 #### 1. Chinese AI Models (国内 AI 模型)
 
-**Now supports Chinese AI models** including Qwen (通义千问), DeepSeek, Ernie (文心一言), and GLM!
+**Default: DeepSeek R1** - A reasoning model that produces higher quality code. Supports multiple Chinese AI models with automatic fallback!
 
 📖 **Full guide**: [docs/chinese-ai-models.md](docs/chinese-ai-models.md)
 
 **Quick Setup:**
 ```env
 # .env.local
-OPENAI_API_KEY=your_qiniu_or_aliyun_key
-OPENAI_BASE_URL=https://api.qiniu.com/v1  # or Aliyun DashScope
+OPENAI_API_KEY=your_qiniu_api_key
+OPENAI_BASE_URL=https://api.qiniu.com/v1
 ```
 
 **Available Models:**
-- Gemini 3Pro
-- 🇨🇳 通义千问 (Qwen Max/Plus/Turbo)
-- 🇨🇳 DeepSeek (Chat/Reasoner)
-- 🇨🇳 文心一言 (Ernie 4.0/3.5)
-- 🇨🇳 智谱 (GLM-4 Plus/Flash)
+- 🧠 **DeepSeek R1** (推理模型，默认) - 代码质量更高
+- 🇨🇳 DeepSeek V3 / V3.1 - 通用对话模型
+- 🇨🇳 Qwen3 Max / Max Preview - 通义千问最新版
+- 🇨🇳 Kimi K2 - Moonshot 最新模型
+- 🚀 Gemini 3 Pro Preview (备用) - 自动 fallback
+
+**Fallback Mechanism:**
+- Gemini ↔ DeepSeek 双向自动切换
+- 遇到 rate limit 或服务不可用时自动重试
+- 智能错误检测，包括代理包装的 429 错误
 
 **中文用户：国内 AI 模型支持**
 
-现已支持通义千问、DeepSeek、文心一言、智谱 GLM 等国内主流模型！
+默认使用 **DeepSeek R1 推理模型**，代码生成质量更高！支持多种国产模型自由切换。
 
 📖 **完整配置指南**: [docs/chinese-ai-models.md](docs/chinese-ai-models.md)
 
 **快速配置：**
-- ✅ **零代码改动** - 仅需配置环境变量
-- ✅ **无需 VPN** - 国内服务器直连
-- ✅ **成本更低** - 国内模型价格实惠
+- ✅ **DeepSeek R1 默认** - 推理模型，代码更优
+- ✅ **双向 Fallback** - Gemini/DeepSeek 自动切换
+- ✅ **无需 VPN** - 七牛云托管，国内直连
 - ✅ **即插即用** - 完全兼容 OpenAI 接口
 
 ---
