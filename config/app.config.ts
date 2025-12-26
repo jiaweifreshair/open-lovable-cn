@@ -50,9 +50,9 @@ export const appConfig = {
   
   // AI Model Configuration
   ai: {
-    // Default AI model - 使用 DeepSeek R1 (推理模型，代码质量更高)
-    // Gemini GCA (cs.imds.ai) 经常遇到 rate limit，作为备用
-    defaultModel: 'deepseek-r1',
+    // Default AI model - 使用 Gemini 3 Pro (速度快、质量高、不易超时)
+    // DeepSeek R1 作为备用推理模型
+    defaultModel: 'gemini-3-pro-preview',
 
     // Available models - 精简版
     availableModels: [
@@ -87,7 +87,7 @@ export const appConfig = {
       'kimi-k2': '🇨🇳 Kimi K2',
 
       // 🚀 Gemini GCA Models (备用)
-      'gemini-3-pro-preview': '🚀 Gemini 3 Pro (备用)',
+      'gemini-3-pro-preview': '🚀 Gemini 3 Pro ⭐',
     } as Record<string, string>,
     
     // Model API configuration

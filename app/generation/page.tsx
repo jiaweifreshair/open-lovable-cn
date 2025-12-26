@@ -26,6 +26,8 @@ import { motion } from 'framer-motion';
 import CodeApplicationProgress, { type CodeApplicationState } from '@/components/CodeApplicationProgress';
 import TechnicalPlanView from '@/components/TechnicalPlanView';
 import type { PlanGenerationResponse } from '@/types/generation';
+import { findMissingLocalFilesFromContent, normalizeManifestForVite, normalizeSandboxFilePath } from '@/utils/codegen-dependencies';
+import { buildScrapeIndex, formatScrapeProfileForPrompt, type ScrapeIndex } from '@/utils/scrape-index';
 
 interface SandboxData {
   sandboxId: string;
@@ -49,6 +51,7 @@ interface ChatMessage {
 function AISandboxPage() {
   const [sandboxData, setSandboxData] = useState<SandboxData | null>(null);
   const [loading, setLoading] = useState(false);
+  const [isKillingSandbox, setIsKillingSandbox] = useState(false);
   const [isSmartRefreshing, setIsSmartRefreshing] = useState(false);
   const [status, setStatus] = useState({ text: 'Not connected', active: false });
   const [responseArea, setResponseArea] = useState<string[]>([]);
@@ -65,6 +68,57 @@ function AISandboxPage() {
   const [aiEnabled] = useState(true);
   const searchParams = useSearchParams();
   const router = useRouter();
+
+  // 本地持久化：避免页面刷新后丢失 sandboxId/url，导致预览与后端状态不同步
+  const SANDBOX_STORAGE_KEY = 'open-lovable:sandbox';
+
+  /**
+   * 保存/清理沙箱信息到 localStorage
+   *
+   * 规则：
+   * - 仅保存必要字段（sandboxId/url），避免引入不必要的敏感信息
+   * - 用户显式销毁沙箱后必须清理
+   */
+  const persistSandboxData = (data: SandboxData | null) => {
+    try {
+      if (!data) {
+        localStorage.removeItem(SANDBOX_STORAGE_KEY);
+        return;
+      }
+
+      const minimal = { sandboxId: data.sandboxId, url: data.url };
+      localStorage.setItem(SANDBOX_STORAGE_KEY, JSON.stringify(minimal));
+    } catch (e) {
+      console.warn('[sandbox] 持久化沙箱信息失败:', e);
+    }
+  };
+
+  /**
+   * 从 localStorage 恢复沙箱信息
+   */
+  const restoreSandboxData = (): SandboxData | null => {
+    try {
+      const raw = localStorage.getItem(SANDBOX_STORAGE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (
+        parsed &&
+        typeof parsed.sandboxId === 'string' &&
+        typeof parsed.url === 'string'
+      ) {
+        return { sandboxId: parsed.sandboxId, url: parsed.url };
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  };
+
+  // 避免闭包拿到旧的 sandboxData：用 ref 持有最新值供异步回调读取
+  const sandboxDataRef = useRef<SandboxData | null>(null);
+  useEffect(() => {
+    sandboxDataRef.current = sandboxData;
+  }, [sandboxData]);
   const [aiModel, setAiModel] = useState(() => {
     const modelParam = searchParams.get('model');
     return appConfig.ai.availableModels.includes(modelParam || '') ? modelParam! : appConfig.ai.defaultModel;
@@ -101,6 +155,17 @@ function AISandboxPage() {
   const [planSummary, setPlanSummary] = useState<PlanGenerationResponse['plan']['summary'] | null>(null);
   const [suggestedManifest, setSuggestedManifest] = useState<PlanGenerationResponse['plan']['suggestedManifest']>([]);
   const [originalPrompt, setOriginalPrompt] = useState(''); // 保存原始用户需求
+  // 使用 ref 规避 setState 异步带来的“原始需求为空”竞态（跳过 Plan 时尤为常见）
+  const originalPromptRef = useRef<string>('');
+  // 推理内容状态（DeepSeek R1 等推理模型的思考过程）
+  const [planReasoningContent, setPlanReasoningContent] = useState('');
+  const [isPlanReasoning, setIsPlanReasoning] = useState(false);
+  // 是否启用"先生成技术方案"的 Plan 模式；关闭后将直接进入 manifest → 逐文件生成
+  const [enablePlanMode, setEnablePlanMode] = useState(false);
+  // 🔥 是否使用 Full 模式（一次性生成所有代码）；true = 原版方式，false = 分段生成
+  const [useFullMode, setUseFullMode] = useState(true);
+  // 抓取内容索引：用于单文件阶段"按需注入相关片段"，避免把整站正文塞进 prompt 触发输入硬上限
+  const scrapeIndexRef = useRef<ScrapeIndex | null>(null);
 
   const [conversationContext, setConversationContext] = useState<{
     scrapedWebsites: Array<{ url: string; content: any; timestamp: Date }>;
@@ -153,14 +218,12 @@ function AISandboxPage() {
   // Store flag to trigger generation after component mounts
   const [shouldAutoGenerate, setShouldAutoGenerate] = useState(false);
 
-  // Clear old conversation data on component mount and create/restore sandbox
+  // Clear old conversation data on component mount
+  // 注意：沙箱创建已移至代码生成完成后，避免提前创建导致超时
   useEffect(() => {
     let isMounted = true;
-    let sandboxCreated = false; // Track if sandbox was created in this effect
 
     const initializePage = async () => {
-      // Prevent double execution in React StrictMode
-      if (sandboxCreated) return;
       
       // First check URL parameters (from home page navigation)
       const urlParam = searchParams.get('url');
@@ -255,38 +318,38 @@ function AISandboxPage() {
       
       if (!isMounted) return;
 
-      // Check if sandbox ID is in URL
+      // 优化流程：不在组件初始化时创建沙箱
+      // 沙箱将在代码生成完成后创建，避免提前创建导致超时
       const sandboxIdParam = searchParams.get('sandbox');
-      
-      setLoading(true);
-      try {
-        if (sandboxIdParam) {
-          console.log('[home] Attempting to restore sandbox:', sandboxIdParam);
-          // For now, just create a new sandbox - you could enhance this to actually restore
-          // the specific sandbox if your backend supports it
-          sandboxCreated = true;
-          await createSandbox(true);
+      const persistedSandbox = restoreSandboxData();
+
+      // 1) URL 上带 sandboxId：优先按 URL 恢复（配合 localStorage 保存的 url）
+      if (sandboxIdParam) {
+        console.log('[home] URL 中包含 sandboxId（将尝试恢复）:', sandboxIdParam);
+
+        if (persistedSandbox?.sandboxId === sandboxIdParam) {
+          setSandboxData(persistedSandbox);
+          updateStatus('Sandbox active', true);
         } else {
-          console.log('[home] No sandbox in URL, creating new sandbox automatically...');
-          sandboxCreated = true;
-          await createSandbox(true);
+          // 兜底：若没有持久化的 url，则尝试按 E2B 的 host 规则推断（仅用于预览）
+          const inferredUrl = `https://${appConfig.e2b.vitePort}-${sandboxIdParam}.e2b.app`;
+          setSandboxData({ sandboxId: sandboxIdParam, url: inferredUrl });
+          updateStatus('Sandbox active', true);
         }
-        
-        // If we have a URL from the home page, mark for automatic start
-        if (storedUrl && isMounted) {
-          // We'll trigger the generation after the component is fully mounted
-          // and the startGeneration function is defined
-          sessionStorage.setItem('autoStart', 'true');
-        }
-      } catch (error) {
-        console.error('[ai-sandbox] Failed to create or restore sandbox:', error);
-        if (isMounted) {
-          addChatMessage('Failed to create or restore sandbox.', 'error');
-        }
-      } finally {
-        if (isMounted) {
-          setLoading(false);
-        }
+      } else if (persistedSandbox) {
+        // 2) URL 未带 sandboxId：恢复最近一次沙箱（便于刷新后继续使用）
+        console.log('[home] 未在 URL 中发现 sandboxId，恢复最近一次沙箱:', persistedSandbox.sandboxId);
+        setSandboxData(persistedSandbox);
+        updateStatus('Sandbox active', true);
+      } else {
+        console.log('[home] No sandbox in URL (will create after code generation)');
+      }
+
+      // If we have a URL from the home page, mark for automatic start
+      if (storedUrl && isMounted) {
+        // We'll trigger the generation after the component is fully mounted
+        // and the startGeneration function is defined
+        sessionStorage.setItem('autoStart', 'true');
       }
     };
     
@@ -297,6 +360,13 @@ function AISandboxPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Run only on mount
+
+  // 当沙箱信息发生变化时，写入本地存储（用于刷新后恢复）
+  useEffect(() => {
+    if (sandboxData?.sandboxId && sandboxData?.url) {
+      persistSandboxData(sandboxData);
+    }
+  }, [sandboxData?.sandboxId, sandboxData?.url]); // eslint-disable-line react-hooks/exhaustive-deps
   
   useEffect(() => {
     // Handle Escape key for home screen
@@ -369,48 +439,8 @@ function AISandboxPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shouldAutoGenerate, homeUrlInput, showHomeScreen]);
 
-  // 清理沙箱：页面关闭时自动清理，避免E2B收费
-  useEffect(() => {
-    const cleanupSandbox = async () => {
-      try {
-        console.log('[cleanup] Cleaning up sandbox on page unload...');
-        // 使用 sendBeacon 确保在页面卸载时也能发送请求
-        // 如果 sendBeacon 不可用，降级到普通 fetch
-        if (navigator.sendBeacon) {
-          navigator.sendBeacon('/api/kill-sandbox');
-        } else {
-          await fetch('/api/kill-sandbox', {
-            method: 'POST',
-            keepalive: true // 确保即使页面关闭也能完成请求
-          });
-        }
-      } catch (error) {
-        console.error('[cleanup] Failed to cleanup sandbox:', error);
-      }
-    };
-
-    // 监听页面卸载事件
-    const handleBeforeUnload = () => {
-      cleanupSandbox();
-    };
-
-    // 监听页面可见性变化（标签页切换、浏览器最小化）
-    const handleVisibilityChange = () => {
-      if (document.hidden && sandboxData) {
-        console.log('[cleanup] Page hidden, sandbox will auto-terminate by E2B timeout');
-      }
-    };
-
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    // 组件卸载时清理
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      // 注意：组件卸载不一定是页面关闭，所以这里不清理沙箱
-    };
-  }, [sandboxData]);
+  // 沙箱销毁策略：仅在用户明确确认后销毁（避免刷新/跳转等导致预览出现 “Sandbox Not Found”）
+  // 说明：不再在 beforeunload 自动调用 `/api/kill-sandbox`
 
   // 心跳检测：每60秒发送一次心跳，防止沙箱被误判为超时
   // 🔥 优化：添加错误容忍机制，避免重复报错刷屏
@@ -644,6 +674,7 @@ function AISandboxPage() {
       if (data.active && data.healthy && data.sandboxData) {
         console.log('[checkSandboxStatus] Setting sandboxData from API:', data.sandboxData);
         setSandboxData(data.sandboxData);
+        persistSandboxData(data.sandboxData);
         updateStatus('Sandbox active', true);
       } else if (data.active && !data.healthy) {
         // Sandbox exists but not responding
@@ -652,7 +683,7 @@ function AISandboxPage() {
       } else {
         // Only clear sandboxData if we don't already have it or if we're explicitly checking from a fresh state
         // This prevents clearing sandboxData during normal operation when it should persist
-        if (!sandboxData) {
+        if (!sandboxDataRef.current) {
           console.log('[checkSandboxStatus] No existing sandboxData, clearing state');
           setSandboxData(null);
           updateStatus('No sandbox', false);
@@ -665,7 +696,7 @@ function AISandboxPage() {
     } catch (error) {
       console.error('Failed to check sandbox status:', error);
       // Only clear on error if we don't have existing sandboxData
-      if (!sandboxData) {
+      if (!sandboxDataRef.current) {
         setSandboxData(null);
         updateStatus('Error', false);
       } else {
@@ -676,7 +707,24 @@ function AISandboxPage() {
 
   const sandboxCreationRef = useRef<boolean>(false);
   
-  const createSandbox = async (fromHomeScreen = false) => {
+  /**
+   * 创建/复用沙箱
+   *
+   * 关键原则：
+   * - 默认复用现有沙箱（避免无确认销毁导致 “Sandbox Not Found”）
+   * - 只有在用户确认后，才允许销毁并重建
+   */
+  const createSandbox = async (options: {
+    fromHomeScreen?: boolean;
+    forceNew?: boolean;
+    terminateExisting?: boolean;
+  } = {}) => {
+    const {
+      fromHomeScreen = false,
+      forceNew = false,
+      terminateExisting = false,
+    } = options;
+
     // Prevent duplicate sandbox creation
     if (sandboxCreationRef.current) {
       console.log('[createSandbox] Sandbox creation already in progress, skipping...');
@@ -697,17 +745,33 @@ function AISandboxPage() {
       const response = await fetch('/api/create-ai-sandbox-v2', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
+        body: JSON.stringify({
+          forceNew,
+          terminateExisting
+        }),
         signal: AbortSignal.timeout(120000) // 120 second timeout
       });
       
       const data = await response.json();
       console.log('[createSandbox] Response data:', data);
+
+      // 后端要求确认：二次弹窗确认后再重建（避免误杀）
+      if (!response.ok && data?.requiresConfirmation) {
+        const confirmed = window.confirm('检测到已有沙箱。重建会销毁当前沙箱且无法恢复，是否继续？');
+        if (!confirmed) {
+          updateStatus('Sandbox active', true);
+          return null;
+        }
+        // 允许二次调用：此处必须先释放创建锁，否则会被“创建中”拦截
+        sandboxCreationRef.current = false;
+        return await createSandbox({ fromHomeScreen, forceNew: true, terminateExisting: true });
+      }
       
       if (data.success) {
         sandboxCreationRef.current = false; // Reset the ref on success
         console.log('[createSandbox] Setting sandboxData from creation:', data);
         setSandboxData(data);
+        persistSandboxData(data);
         updateStatus('Sandbox active', true);
         log('Sandbox created successfully!');
         log(`Sandbox ID: ${data.sandboxId}`);
@@ -775,6 +839,67 @@ Tip: I automatically detect and install npm packages from your code imports (lik
     }
   };
 
+  /**
+   * 顶部按钮：创建/重建沙箱
+   *
+   * 规则：
+   * - 没有沙箱时：直接创建
+   * - 已有沙箱时：必须先弹窗确认，确认后“销毁并重建”
+   */
+  const handleCreateSandboxClick = async () => {
+    if (sandboxData?.sandboxId) {
+      const confirmed = window.confirm('已存在沙箱。重建会销毁当前沙箱且无法恢复，是否继续？');
+      if (!confirmed) return;
+      await createSandbox({ forceNew: true, terminateExisting: true });
+      return;
+    }
+    await createSandbox();
+  };
+
+  /**
+   * 用户确认后销毁沙箱（唯一允许销毁的入口）
+   */
+  const handleKillSandboxClick = async () => {
+    if (!sandboxData?.sandboxId) return;
+
+    const confirmed = window.confirm('确认销毁当前沙箱吗？销毁后预览将不可用，且无法恢复。');
+    if (!confirmed) return;
+
+    setIsKillingSandbox(true);
+    try {
+      const resp = await fetch('/api/kill-sandbox', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sandboxId: sandboxData.sandboxId })
+      });
+
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok || !data?.success) {
+        throw new Error(data?.error || '沙箱销毁失败');
+      }
+
+      // 清理前端状态 + 本地持久化 + URL 参数
+      persistSandboxData(null);
+      setSandboxData(null);
+      updateStatus('No sandbox', false);
+
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete('sandbox');
+      router.push(`/generation?${params.toString()}`, { scroll: false });
+
+      if (iframeRef.current) {
+        iframeRef.current.src = 'about:blank';
+      }
+
+      addChatMessage('已销毁沙箱。', 'system');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '沙箱销毁失败';
+      addChatMessage(msg, 'error');
+    } finally {
+      setIsKillingSandbox(false);
+    }
+  };
+
   const displayStructure = (structure: any) => {
     if (typeof structure === 'object') {
       setStructureContent(JSON.stringify(structure, null, 2));
@@ -801,6 +926,8 @@ Tip: I automatically detect and install npm packages from your code imports (lik
       
       // Use streaming endpoint for real-time feedback
       const effectiveSandboxData = overrideSandboxData || sandboxData;
+      // 过程中如发生“沙箱重建/切换”，用本地变量追踪最新沙箱信息，避免仍指向旧 URL
+      let latestSandboxData = effectiveSandboxData;
       const response = await fetch('/api/apply-ai-code-stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -834,6 +961,38 @@ Tip: I automatically detect and install npm packages from your code imports (lik
               const data = JSON.parse(line.slice(6));
               
               switch (data.type) {
+                case 'sandbox': {
+                  if (data?.sandboxId && data?.url) {
+                    const nextSandbox: SandboxData = {
+                      sandboxId: data.sandboxId,
+                      url: data.url
+                    };
+                    latestSandboxData = nextSandbox;
+                    setSandboxData(nextSandbox);
+                    persistSandboxData(nextSandbox);
+                    updateStatus('Sandbox active', true);
+
+                    // 同步 URL 参数（便于刷新后恢复）
+                    const params = new URLSearchParams(searchParams.toString());
+                    params.set('sandbox', nextSandbox.sandboxId);
+                    params.set('model', aiModel);
+                    router.push(`/generation?${params.toString()}`, { scroll: false });
+
+                    // 仅在发生替换时提示，避免刷屏
+                    if (data.replacedSandboxId && data.replacedSandboxId !== nextSandbox.sandboxId) {
+                      addChatMessage(
+                        `原沙箱不可用（${data.replacedSandboxId}），已自动切换到新沙箱：${nextSandbox.sandboxId}`,
+                        'system'
+                      );
+                    }
+
+                    // 预览 iframe 切换到新沙箱
+                    if (iframeRef.current) {
+                      iframeRef.current.src = `${nextSandbox.url}?t=${Date.now()}&sandbox=switched`;
+                    }
+                  }
+                  break;
+                }
                 case 'start':
                   // Don't add as chat message, just update state
                   setCodeApplicationState({ stage: 'analyzing' });
@@ -971,7 +1130,7 @@ Tip: I automatically detect and install npm packages from your code imports (lik
           });
           
           // Verify files were actually created by refreshing the sandbox if needed
-          if (sandboxData?.sandboxId && results.filesCreated.length > 0) {
+          if (latestSandboxData?.sandboxId && results.filesCreated.length > 0) {
             // Small delay to ensure files are written
             setTimeout(() => {
               // Force refresh the iframe to show new files
@@ -1104,7 +1263,7 @@ Tip: I automatically detect and install npm packages from your code imports (lik
           const refreshDelay = appConfig.codeApplication.defaultRefreshDelay; // Allow Vite to process changes
           
           setTimeout(() => {
-            const currentSandboxData = effectiveSandboxData;
+            const currentSandboxData = latestSandboxData || effectiveSandboxData;
             if (iframeRef.current && currentSandboxData?.url) {
               console.log('[home] Refreshing iframe after code application...');
               
@@ -1131,7 +1290,7 @@ Tip: I automatically detect and install npm packages from your code imports (lik
         }
         
           // Give Vite HMR a moment to detect changes, then ensure refresh
-          const currentSandboxData = effectiveSandboxData;
+          const currentSandboxData = latestSandboxData || effectiveSandboxData;
           if (iframeRef.current && currentSandboxData?.url) {
             // Wait for Vite to process the file changes
             // If packages were installed, wait longer for Vite to restart
@@ -1370,10 +1529,15 @@ Tip: I automatically detect and install npm packages from your code imports (lik
           summary={planSummary || undefined}
           suggestedManifest={suggestedManifest}
           onConfirm={handlePlanConfirm}
+          // 🧠 推理过程展示（DeepSeek R1 等推理模型）
+          reasoningContent={planReasoningContent}
+          isReasoning={isPlanReasoning}
           onEdit={() => {
             // 用户想修改方案，返回输入界面
             setPlanMode('idle');
             setPlanContent('');
+            setPlanReasoningContent('');
+            setIsPlanReasoning(false);
             setPlanSummary(null);
             setSuggestedManifest([]);
             setShowHomeScreen(true);
@@ -1382,6 +1546,8 @@ Tip: I automatically detect and install npm packages from your code imports (lik
             // 取消方案，返回输入界面
             setPlanMode('idle');
             setPlanContent('');
+            setPlanReasoningContent('');
+            setIsPlanReasoning(false);
             setPlanSummary(null);
             setSuggestedManifest([]);
             setShowHomeScreen(true);
@@ -2012,19 +2178,10 @@ Tip: I automatically detect and install npm packages from your code imports (lik
       return;
     }
     
-    // Start sandbox creation in parallel if needed
-    let sandboxPromise: Promise<void> | null = null;
-    let sandboxCreating = false;
-    
-    if (!sandboxData) {
-      sandboxCreating = true;
-      addChatMessage('Creating sandbox while I plan your app...', 'system');
-      sandboxPromise = createSandbox(true).catch((error: any) => {
-        addChatMessage(`Failed to create sandbox: ${error.message}`, 'system');
-        throw error;
-      });
-    }
-    
+    // 优化流程：先生成代码，再创建沙箱
+    // 这样沙箱创建后可以立即部署代码，避免显示空的预览状态
+    const needsSandbox = !sandboxData;
+
     // Determine if this is an edit
     const isEdit = conversationContext.appliedCode.length > 0;
     
@@ -2053,13 +2210,13 @@ Tip: I automatically detect and install npm packages from your code imports (lik
       console.log('[chat] Using backend file cache for context');
       
       const fullContext = {
-        sandboxId: sandboxData?.sandboxId || (sandboxCreating ? 'pending' : null),
+        sandboxId: sandboxData?.sandboxId || (needsSandbox ? 'pending' : null),
         structure: structureContent,
         recentMessages: chatMessages.slice(-20),
         conversationContext: conversationContext,
         currentCode: promptInput,
         sandboxUrl: sandboxData?.url,
-        sandboxCreating: sandboxCreating
+        sandboxCreating: needsSandbox  // 标记需要在代码生成后创建沙箱
       };
       
       // Debug what we're sending
@@ -2367,33 +2524,35 @@ Tip: I automatically detect and install npm packages from your code imports (lik
         setPromptInput(generatedCode);
         // Don't show the Generated Code panel by default
         // setLeftPanelVisible(true);
-        
-        // Wait for sandbox creation if it's still in progress
+
+        // 优化流程：代码生成完成后再创建沙箱
+        // 这样沙箱创建后可以立即部署代码，避免显示空的预览状态
         let activeSandboxData = sandboxData;
-        if (sandboxPromise) {
-          addChatMessage('Waiting for sandbox to be ready...', 'system');
+        if (needsSandbox) {
+          addChatMessage('Code generated! Now creating sandbox for deployment...', 'system');
           try {
-            const newSandboxData = await sandboxPromise;
+            const newSandboxData = await createSandbox({ fromHomeScreen: true });
             if (newSandboxData != null) {
               activeSandboxData = newSandboxData;
               // Also update the state for future use
               setSandboxData(newSandboxData);
             }
-            // Remove the waiting message
-            setChatMessages(prev => prev.filter(msg => msg.content !== 'Waiting for sandbox to be ready...'));
-          } catch {
-            addChatMessage('Sandbox creation failed. Cannot apply code.', 'system');
+            // Remove the status message
+            setChatMessages(prev => prev.filter(msg => msg.content !== 'Code generated! Now creating sandbox for deployment...'));
+          } catch (error: unknown) {
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            addChatMessage(`Sandbox creation failed: ${errorMessage}. Cannot apply code.`, 'system');
             return;
           }
         }
-        
+
         if (activeSandboxData && generatedCode) {
-          // For new sandbox creations (especially Vercel), add a delay to ensure Vite is ready
-          if (sandboxCreating) {
+          // For new sandbox creations, add a delay to ensure Vite is ready
+          if (needsSandbox) {
             console.log('[startGeneration] New sandbox created, waiting for services to be ready...');
             await new Promise(resolve => setTimeout(resolve, 2000));
           }
-          
+
           // Use isEdit flag that was determined at the start
           // Pass the sandbox data from the promise if it's different from the state
           await applyGeneratedCode(generatedCode, isEdit, activeSandboxData !== sandboxData ? activeSandboxData : undefined);
@@ -2922,12 +3081,265 @@ Tip: I automatically detect and install npm packages from your code imports (lik
     await startGeneration();
   };
 
+  // 🔥 Full 模式：一次性生成所有代码（原版方式）
+  const generateCodeFullMode = async (prompt: string, url: string) => {
+    console.log('[generateCodeFullMode] 开始一次性生成代码...');
+
+    setGenerationProgress(prev => ({
+      isGenerating: true,
+      status: 'Initializing AI...',
+      components: [],
+      currentComponent: 0,
+      streamedCode: '',
+      isStreaming: true,
+      isThinking: false,
+      thinkingText: undefined,
+      thinkingDuration: undefined,
+      files: prev.files || [],
+      currentFile: undefined,
+      lastProcessedPosition: 0,
+      isEdit: false
+    }));
+
+    // 切换到 generation tab
+    setActiveTab('generation');
+
+    const aiResponse = await fetch('/api/generate-ai-code-stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt,
+        model: aiModel,
+        context: {
+          sandboxId: sandboxData?.sandboxId,
+          structure: structureContent,
+          conversationContext: conversationContext,
+          // 🔥 传递 scrapeIndex，让后端可以按需注入抓取内容片段
+          scrapeIndex: scrapeIndexRef.current
+        }
+        // 🔥 不传 generation 参数，默认使用 full 模式
+      })
+    });
+
+    if (!aiResponse.ok) {
+      let errorMessage = 'Failed to generate code';
+      try {
+        const errorPayload = await aiResponse.json();
+        if (errorPayload?.error) {
+          errorMessage = errorPayload.error;
+        } else if (errorPayload?.message) {
+          errorMessage = errorPayload.message;
+        } else {
+          errorMessage = `Failed to generate code (HTTP ${aiResponse.status})`;
+        }
+      } catch {
+        errorMessage = `Failed to generate code (HTTP ${aiResponse.status})`;
+      }
+      throw new Error(errorMessage);
+    }
+
+    if (!aiResponse.body) {
+      throw new Error('Failed to generate code: empty response');
+    }
+
+    const reader = aiResponse.body.getReader();
+    const decoder = new TextDecoder();
+    let generatedCode = '';
+    let explanation = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const chunk = decoder.decode(value);
+      const lines = chunk.split('\n');
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            const data = JSON.parse(line.slice(6));
+
+            if (data.type === 'status') {
+              setGenerationProgress(prev => ({ ...prev, status: data.message }));
+            } else if (data.type === 'thinking') {
+              setGenerationProgress(prev => ({
+                ...prev,
+                isThinking: true,
+                thinkingText: (prev.thinkingText || '') + data.text
+              }));
+            } else if (data.type === 'thinking_complete') {
+              setGenerationProgress(prev => ({
+                ...prev,
+                isThinking: false,
+                thinkingDuration: data.duration
+              }));
+            } else if (data.type === 'conversation') {
+              let text = data.text || '';
+              text = text.replace(/<package>[^<]*<\/package>/g, '');
+              text = text.replace(/<packages>[^<]*<\/packages>/g, '');
+
+              if (!text.includes('<file') && !text.includes('import React') &&
+                  !text.includes('export default') && !text.includes('className=') &&
+                  text.trim().length > 0) {
+                addChatMessage(text.trim(), 'ai');
+              }
+            } else if (data.type === 'stream' && data.raw) {
+              setGenerationProgress(prev => {
+                const newStreamedCode = prev.streamedCode + data.text;
+                const updatedState = {
+                  ...prev,
+                  streamedCode: newStreamedCode,
+                  isStreaming: true,
+                  isThinking: false,
+                  status: 'Generating code...'
+                };
+
+                // Process complete files from the accumulated stream
+                const fileRegex = /<file path="([^"]+)">([^]*?)<\/file>/g;
+                let match;
+                const processedFiles = new Set(prev.files.map(f => f.path));
+
+                while ((match = fileRegex.exec(newStreamedCode)) !== null) {
+                  const filePath = match[1];
+                  const fileContent = match[2];
+
+                  // 🔥 过滤配置文件
+                  const fileName = filePath.split('/').pop() || '';
+                  const isConfigFile = ['tailwind.config.js', 'vite.config.js', 'package.json', 'package-lock.json', 'tsconfig.json', 'postcss.config.js'].includes(fileName);
+                  if (isConfigFile) {
+                    console.log(`[generateCodeFullMode] 跳过配置文件: ${filePath}`);
+                    continue;
+                  }
+
+                  if (!processedFiles.has(filePath)) {
+                    const fileExt = filePath.split('.').pop() || '';
+                    const fileType = fileExt === 'jsx' || fileExt === 'js' ? 'javascript' :
+                                    fileExt === 'css' ? 'css' :
+                                    fileExt === 'json' ? 'json' :
+                                    fileExt === 'html' ? 'html' : 'text';
+
+                    const existingFileIndex = updatedState.files.findIndex(f => f.path === filePath);
+
+                    if (existingFileIndex >= 0) {
+                      updatedState.files = [
+                        ...updatedState.files.slice(0, existingFileIndex),
+                        {
+                          ...updatedState.files[existingFileIndex],
+                          content: fileContent.trim(),
+                          type: fileType,
+                          completed: true,
+                          edited: true
+                        },
+                        ...updatedState.files.slice(existingFileIndex + 1)
+                      ];
+                    } else {
+                      updatedState.files = [...updatedState.files, {
+                        path: filePath,
+                        content: fileContent.trim(),
+                        type: fileType,
+                        completed: true,
+                        edited: false
+                      }];
+                    }
+
+                    updatedState.status = `Completed ${filePath}`;
+                    processedFiles.add(filePath);
+                  }
+                }
+
+                // Check for current file being generated (incomplete file at the end)
+                const lastFileMatch = newStreamedCode.match(/<file path="([^"]+)">([^]*?)$/);
+                if (lastFileMatch && !lastFileMatch[0].includes('</file>')) {
+                  const filePath = lastFileMatch[1];
+                  const partialContent = lastFileMatch[2];
+
+                  // 🔥 过滤配置文件
+                  const fileName = filePath.split('/').pop() || '';
+                  const isConfigFile = ['tailwind.config.js', 'vite.config.js', 'package.json', 'package-lock.json', 'tsconfig.json', 'postcss.config.js'].includes(fileName);
+
+                  if (!processedFiles.has(filePath) && !isConfigFile) {
+                    const fileExt = filePath.split('.').pop() || '';
+                    const fileType = fileExt === 'jsx' || fileExt === 'js' ? 'javascript' :
+                                    fileExt === 'css' ? 'css' :
+                                    fileExt === 'json' ? 'json' :
+                                    fileExt === 'html' ? 'html' : 'text';
+
+                    updatedState.currentFile = {
+                      path: filePath,
+                      content: partialContent,
+                      type: fileType
+                    };
+                    updatedState.status = `Generating ${filePath}`;
+                  }
+                } else {
+                  updatedState.currentFile = undefined;
+                }
+
+                return updatedState;
+              });
+            } else if (data.type === 'complete') {
+              generatedCode = data.generatedCode;
+              explanation = data.explanation;
+
+              setConversationContext(prev => ({
+                ...prev,
+                lastGeneratedCode: generatedCode
+              }));
+            }
+          } catch (e) {
+            console.error('Failed to parse SSE data:', e);
+          }
+        }
+      }
+    }
+
+    setGenerationProgress(prev => ({
+      ...prev,
+      isGenerating: false,
+      isStreaming: false,
+      status: 'Generation complete!'
+    }));
+
+    if (generatedCode) {
+      addChatMessage('AI recreation generated!', 'system');
+
+      if (explanation && explanation.trim()) {
+        addChatMessage(explanation, 'ai');
+      }
+
+      setPromptInput(generatedCode);
+
+      // 应用生成的代码
+      await applyGeneratedCode(generatedCode, false);
+
+      addChatMessage(
+        `Successfully recreated ${url} as a modern React app! You can ask me to modify specific sections or add features.`,
+        'ai',
+        {
+          scrapedUrl: url,
+          generatedCode: generatedCode
+        }
+      );
+
+      setConversationContext(prev => ({
+        ...prev,
+        generatedComponents: [],
+        appliedCode: [...prev.appliedCode, {
+          files: [],
+          timestamp: new Date()
+        }]
+      }));
+    }
+  };
+
   // 生成技术方案 (Plan 模式)
   const generateTechnicalPlan = async (prompt: string, url: string) => {
     console.log('[generateTechnicalPlan] 开始生成技术方案...');
 
     setPlanMode('generating');
     setPlanContent('');
+    setPlanReasoningContent(''); // 重置推理内容
+    setIsPlanReasoning(true); // 开始时假设是推理阶段
     setOriginalPrompt(prompt); // 保存原始 prompt
 
     // 切换到 generation tab 显示方案
@@ -2990,16 +3402,26 @@ Tip: I automatically detect and install npm packages from your code imports (lik
 	              hasReceivedData = true;
 
 	              // 实时更新方案内容（打字机效果）
+	              // 🧠 区分推理内容和方案内容（DeepSeek R1 等推理模型）
 	              if (data.type === 'plan_chunk') {
 	                const delta = typeof data.chunk === 'string' ? data.chunk : '';
-	                receivedPlanTextLength += delta.length;
-	                setPlanContent(prev => prev + delta);
+	                if (data.isReasoning) {
+	                  // 推理内容 - 展示 AI 的思考过程
+	                  setIsPlanReasoning(true);
+	                  setPlanReasoningContent(prev => prev + delta);
+	                } else {
+	                  // 方案内容 - 实际的技术方案
+	                  setIsPlanReasoning(false); // 推理阶段结束，进入方案输出阶段
+	                  receivedPlanTextLength += delta.length;
+	                  setPlanContent(prev => prev + delta);
+	                }
 	              }
 
 	              // 方案生成完成 - plan 数据通过 SSE 事件传递
 	              if (data.type === 'plan_complete' && data.plan) {
 	                console.log('[generateTechnicalPlan] 方案生成完成');
 	                completeEventReceived = true;
+	                setIsPlanReasoning(false); // 确保推理状态结束
 	                setPlanMode('complete');
 	                if (typeof data.plan.content === 'string') {
 	                  receivedPlanTextLength = Math.max(receivedPlanTextLength, data.plan.content.length);
@@ -3047,6 +3469,8 @@ Tip: I automatically detect and install npm packages from your code imports (lik
       console.error('[generateTechnicalPlan] 技术方案生成失败:', error);
       setPlanMode('idle');
       setPlanContent(''); // 清空已接收的内容
+      setPlanReasoningContent(''); // 清空推理内容
+      setIsPlanReasoning(false);
       const errorMessage = error instanceof Error ? error.message : '未知错误';
       addChatMessage(`技术方案生成失败: ${errorMessage}。您可以重试或调整需求后再试。`, 'error');
     }
@@ -3054,7 +3478,8 @@ Tip: I automatically detect and install npm packages from your code imports (lik
 
   // 用户确认方案后，开始代码生成
   const handlePlanConfirm = async (
-    confirmedManifest: PlanGenerationResponse['plan']['suggestedManifest'] = suggestedManifest
+    confirmedManifest: PlanGenerationResponse['plan']['suggestedManifest'] = suggestedManifest,
+    promptOverride?: string
   ) => {
     console.log('[handlePlanConfirm] 用户确认方案，开始生成代码...');
 
@@ -3066,10 +3491,14 @@ Tip: I automatically detect and install npm packages from your code imports (lik
     // 继续执行代码生成流程（使用保存的 originalPrompt）
     try {
       const url = homeUrlInput.trim();
-      const prompt = originalPrompt;
+      const prompt = (promptOverride && promptOverride.trim())
+        ? promptOverride
+        : (originalPromptRef.current && originalPromptRef.current.trim())
+        ? originalPromptRef.current
+        : originalPrompt;
 
       if (!prompt || !prompt.trim()) {
-        throw new Error('原始需求为空，无法开始生成代码');
+        throw new Error('原始需求为空，无法开始生成代码（请重试或重新输入 URL/需求）');
       }
 
       // ✅ 分段生成：manifest → 逐文件生成，避免一次性生成导致的空白/截断
@@ -3129,7 +3558,7 @@ Tip: I automatically detect and install npm packages from your code imports (lik
         confirmedManifest && confirmedManifest.length > 0 ? confirmedManifest : suggestedManifest;
 
       if (!manifest || manifest.length === 0) {
-        addChatMessage('未能从技术方案中提取到文件清单，正在重新生成文件清单...', 'system');
+        addChatMessage('未能获取文件清单，正在生成文件清单...', 'system');
 
         let fetchedManifest: PlanGenerationResponse['plan']['suggestedManifest'] = [];
         const manifestResponse = await fetch('/api/generate-ai-code-stream', {
@@ -3140,7 +3569,8 @@ Tip: I automatically detect and install npm packages from your code imports (lik
             model: aiModel,
             context: {
               sandboxId: sandboxData?.sandboxId,
-              currentFiles: sandboxFiles
+              currentFiles: sandboxFiles,
+              scrapeIndex: scrapeIndexRef.current
             },
             generation: { mode: 'manifest' }
           })
@@ -3165,12 +3595,28 @@ Tip: I automatically detect and install npm packages from your code imports (lik
         throw new Error('文件清单为空，无法生成代码');
       }
 
+      // ✅ 规范化清单：对齐 Vite/Tailwind 的目录习惯，减少“导入路径与落盘路径不一致”
+      manifest = normalizeManifestForVite(manifest);
+
+      // 构建“已知文件路径”集合：manifest + 沙箱已有文件
+      const knownPaths = new Set<string>();
+      for (const item of manifest) knownPaths.add(normalizeSandboxFilePath(item.path));
+      const normalizedSandboxFiles: Record<string, string> = {};
+      for (const [p, c] of Object.entries(sandboxFiles || {})) {
+        const np = normalizeSandboxFilePath(p);
+        if (!np) continue;
+        normalizedSandboxFiles[np] = c;
+        knownPaths.add(np);
+      }
+
       // 2) 逐文件生成
       const generatedFiles: Array<{ path: string; content: string }> = [];
+      const generatedFilesForContext: Record<string, string> = {};
+      const maxTotalFiles = 60; // 防止模型输出异常导致无限补全
 
       for (let fileIndex = 0; fileIndex < manifest.length; fileIndex++) {
         const item = manifest[fileIndex];
-        const filePath = item.path;
+        const filePath = normalizeSandboxFilePath(item.path);
         const fileExt = filePath.split('.').pop() || '';
         const fileType = fileExt === 'jsx' || fileExt === 'js' ? 'javascript' :
                         fileExt === 'css' ? 'css' :
@@ -3192,9 +3638,10 @@ Tip: I automatically detect and install npm packages from your code imports (lik
             model: aiModel,
             context: {
               sandboxId: sandboxData?.sandboxId,
-              currentFiles: sandboxFiles,
+              // 🔥 将“已生成文件”带回上下文，便于后续文件引用/对齐导入路径
+              currentFiles: { ...normalizedSandboxFiles, ...generatedFilesForContext },
               structure: structureContent,
-              conversationContext
+              scrapeIndex: scrapeIndexRef.current
             },
             generation: {
               mode: 'file',
@@ -3227,14 +3674,51 @@ Tip: I automatically detect and install npm packages from your code imports (lik
           throw new Error(`未收到文件生成结果: ${filePath}`);
         }
 
-        generatedFiles.push(fileResult);
+        // 统一路径（对齐 apply 阶段的规范化逻辑）
+        const ensuredFileResult = fileResult as { path: string; content: string };
+        const normalizedResult = {
+          path: normalizeSandboxFilePath(ensuredFileResult.path),
+          content: ensuredFileResult.content
+        };
+
+        generatedFiles.push(normalizedResult);
+        generatedFilesForContext[normalizedResult.path] = normalizedResult.content;
+        knownPaths.add(normalizedResult.path);
+
+        // ✅ 自动补全：检测本文件的相对导入是否指向缺失文件，缺失则追加到 manifest 队列继续生成
+        const missingLocalFiles = findMissingLocalFilesFromContent({
+          importerPath: normalizedResult.path,
+          content: normalizedResult.content,
+          knownPaths
+        });
+
+        if (missingLocalFiles.length > 0) {
+          if (manifest.length + missingLocalFiles.length > maxTotalFiles) {
+            throw new Error(`检测到缺失依赖文件过多（>${maxTotalFiles}），请缩小需求或切换模型重试。`);
+          }
+
+          addChatMessage(`检测到缺失依赖文件 ${missingLocalFiles.length} 个，正在自动补全...`, 'system');
+
+          for (const missingPath of missingLocalFiles) {
+            if (knownPaths.has(missingPath)) continue;
+            knownPaths.add(missingPath);
+            manifest.push({
+              path: missingPath,
+              description: `自动补全：为满足导入依赖生成 ${missingPath}`,
+              type: 'component',
+              dependencies: [],
+              isCritical: false,
+              estimatedLines: 60
+            });
+          }
+        }
 
         setGenerationProgress(prev => {
           // 去重检查：如果文件已存在，更新内容而不是重复添加
-          const existingIndex = prev.files.findIndex(f => f.path === fileResult!.path);
+          const existingIndex = prev.files.findIndex(f => f.path === normalizedResult.path);
           const newFile = {
-            path: fileResult!.path,
-            content: fileResult!.content.trim(),
+            path: normalizedResult.path,
+            content: normalizedResult.content.trim(),
             type: fileType,
             completed: true,
             edited: false
@@ -3282,15 +3766,44 @@ Tip: I automatically detect and install npm packages from your code imports (lik
 
       // E2E/离线测试模式下不自动 apply（避免依赖外部沙箱服务）
       const skipAutoApply = process.env.NEXT_PUBLIC_OPEN_LOVABLE_E2E === '1';
-      if (!skipAutoApply && sandboxData?.sandboxId) {
-        await applyGeneratedCode(generatedCode, false);
-        addChatMessage(
-          `Successfully recreated ${url} as a modern React app! The scraped content is now in my context.`,
-          'ai'
-        );
-        setActiveTab('preview');
+      if (!skipAutoApply) {
+        // 优化流程：代码生成完成后再创建沙箱
+        // 这样沙箱创建后可以立即部署代码，避免提前创建导致超时
+        let activeSandboxData = sandboxData;
+        if (!sandboxData?.sandboxId) {
+          addChatMessage('Code generated! Now creating sandbox for deployment...', 'system');
+          try {
+            const newSandboxData = await createSandbox({ fromHomeScreen: true });
+            if (newSandboxData != null) {
+              activeSandboxData = newSandboxData;
+              setSandboxData(newSandboxData);
+            }
+            setChatMessages(prev => prev.filter(msg => msg.content !== 'Code generated! Now creating sandbox for deployment...'));
+          } catch (error: unknown) {
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            addChatMessage(`Sandbox creation failed: ${errorMessage}. Code saved but not deployed.`, 'system');
+            setActiveTab('generation');
+            return;
+          }
+        }
+
+        if (activeSandboxData?.sandboxId) {
+          // 等待沙箱服务就绪
+          console.log('[handlePlanConfirm] Waiting for sandbox services to be ready...');
+          await new Promise(resolve => setTimeout(resolve, 2000));
+
+          await applyGeneratedCode(generatedCode, false, activeSandboxData);
+          addChatMessage(
+            `Successfully recreated ${url} as a modern React app! The scraped content is now in my context.`,
+            'ai'
+          );
+          setActiveTab('preview');
+        } else {
+          addChatMessage('代码已生成但沙箱创建失败。', 'system');
+          setActiveTab('generation');
+        }
       } else {
-        addChatMessage('代码已生成（未自动应用到沙箱）。', 'system');
+        addChatMessage('代码已生成（E2E测试模式，未自动应用到沙箱）。', 'system');
         setActiveTab('generation');
       }
 
@@ -3330,10 +3843,10 @@ Tip: I automatically detect and install npm packages from your code imports (lik
     // Remove protocol for cleaner display
     const cleanUrl = displayUrl.replace(/^https?:\/\//i, '');
     addChatMessage(`Starting to clone ${cleanUrl}...`, 'system');
-    
-    // Start creating sandbox and capturing screenshot immediately in parallel
-    const sandboxPromise = !sandboxData ? createSandbox(true) : Promise.resolve(null);
-    
+
+    // 优化流程：不在此处创建沙箱，等代码生成完成后再创建
+    // 这样沙箱创建后可以立即部署代码，避免显示空的预览状态
+
     // Set loading stage immediately before hiding home screen
     setLoadingStage('gathering');
     // Also ensure we're on preview tab to show the loading overlay
@@ -3351,10 +3864,9 @@ Tip: I automatically detect and install npm packages from your code imports (lik
       setTimeout(() => {
         setIsStartingNewGeneration(false);
       }, 1000);
-      
-      // Wait for sandbox to be ready (if it's still creating)
-      await sandboxPromise;
-      
+
+      // 沙箱将在代码生成完成后创建（见 sendChatMessage 中的优化逻辑）
+
       // Now start the clone process which will stream the generation
       setUrlInput(homeUrlInput);
       setUrlOverlayVisible(false); // Make sure overlay is closed
@@ -3462,9 +3974,27 @@ Tip: I automatically detect and install npm packages from your code imports (lik
           }
         }
         
-        const prompt = `I want to recreate the ${url} website as a complete React application based on the scraped content below.
+        // 构建“结构化概要 + 分块索引”：
+        // - prompt 只携带概要（小而稳定）
+        // - 详细片段由后端根据当前生成的文件按需注入（通过 context.scrapeIndex）
+        const scrapeIndex = buildScrapeIndex({
+          url,
+          scrapeData,
+          options: {
+            maxChunks: 48,
+            maxChunkChars: 2200,
+            maxPreviewChars: 240,
+            maxHeadings: 24
+          }
+        });
+        scrapeIndexRef.current = scrapeIndex;
 
-${JSON.stringify(scrapeData, null, 2)}
+        const promptScrapeProfile = formatScrapeProfileForPrompt(scrapeIndex.profile);
+
+        const prompt = `I want to recreate the ${url} website as a complete React application based on the structured site profile below.
+
+SITE PROFILE (compact, for planning):
+${promptScrapeProfile}
 
 ${filteredContext ? `ADDITIONAL CONTEXT/REQUIREMENTS FROM USER:
 ${filteredContext}
@@ -3484,9 +4014,25 @@ ${filteredContext ? '- Apply the user\'s context/theme requirements throughout t
 
 Focus on the key sections and content, making it clean and modern.`;
 
-        // 🔥 第一步：生成技术方案（Plan 模式）
-        console.log('[startGeneration] 调用 Plan 模式生成技术方案...');
-        await generateTechnicalPlan(prompt, url);
+        // 保存原始 prompt，供后续分段生成复用（不管是否启用 Plan 都需要）
+        setOriginalPrompt(prompt);
+        originalPromptRef.current = prompt;
+
+        // 🔥 根据 useFullMode 选择生成模式
+        if (useFullMode) {
+          // ✅ Full 模式：一次性生成所有代码（原版方式）
+          console.log('[startGeneration] 使用 Full 模式一次性生成...');
+          addChatMessage('开始一次性生成代码...', 'system');
+          await generateCodeFullMode(prompt, url);
+        } else if (enablePlanMode) {
+          // 🔥 第一步：生成技术方案（Plan 模式）
+          console.log('[startGeneration] 调用 Plan 模式生成技术方案...');
+          await generateTechnicalPlan(prompt, url);
+        } else {
+          // ✅ 直接生成：跳过 Plan，直接进入 manifest → 逐文件生成
+          addChatMessage('已跳过技术方案，开始直接生成代码...', 'system');
+          await handlePlanConfirm([], prompt);
+        }
 
         // 注意：代码生成将在用户确认方案后，由 handlePlanConfirm() 继续执行
         // （旧的直接代码生成逻辑已移至 handlePlanConfirm()）
@@ -3513,7 +4059,7 @@ Focus on the key sections and content, making it clean and modern.`;
   return (
     <HeaderProvider>
       <div className="font-sans bg-background text-foreground h-screen flex flex-col">
-      <div className="bg-white py-[15px] py-[8px] border-b border-border-faint flex items-center justify-between shadow-sm">
+      <div className="bg-white px-4 py-2 border-b border-border-faint flex items-center justify-between shadow-sm">
         <HeaderBrandKit />
         <div className="flex items-center gap-2">
           {/* Model Selector - Left side */}
@@ -3537,13 +4083,43 @@ Focus on the key sections and content, making it clean and modern.`;
               </option>
             ))}
           </select>
-          <button 
-            onClick={() => createSandbox()}
-            className="p-8 rounded-lg transition-colors bg-gray-50 border border-gray-200 text-gray-700 hover:bg-gray-100"
-            title="Create new sandbox"
+          <label className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded-lg select-none" title="关闭则使用分段生成（Plan→Manifest→逐文件）">
+            <input
+              type="checkbox"
+              checked={useFullMode}
+              onChange={(e) => setUseFullMode(e.target.checked)}
+              className="accent-green-600"
+            />
+            <span>一次生成</span>
+          </label>
+          <label className={`flex items-center gap-2 px-3 py-1.5 text-sm bg-gray-50 border border-gray-200 rounded-lg select-none ${useFullMode ? 'text-gray-400 cursor-not-allowed' : 'text-gray-700'}`} title="仅在关闭一次生成时可用">
+            <input
+              type="checkbox"
+              checked={enablePlanMode}
+              onChange={(e) => setEnablePlanMode(e.target.checked)}
+              disabled={useFullMode}
+              className="accent-blue-600"
+            />
+            <span>技术方案</span>
+          </label>
+          <button
+            onClick={handleCreateSandboxClick}
+            disabled={loading || isKillingSandbox}
+            className="p-8 rounded-lg transition-colors bg-gray-50 border border-gray-200 text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+            title={sandboxData ? '重建沙箱（需确认，会销毁当前）' : '创建沙箱'}
           >
             <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+          </button>
+          <button
+            onClick={handleKillSandboxClick}
+            disabled={!sandboxData || isKillingSandbox}
+            className="p-8 rounded-lg transition-colors bg-red-50 border border-red-200 text-red-700 hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed"
+            title="结束沙箱（需确认）"
+          >
+            <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7h6m-7 0h8m-8 0V5a2 2 0 012-2h4a2 2 0 012 2v2" />
             </svg>
           </button>
           <button 

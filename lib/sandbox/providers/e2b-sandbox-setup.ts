@@ -107,6 +107,9 @@ export default {
   content: [
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
+    "./components/**/*.{js,ts,jsx,tsx}",
+    "./app/**/*.{js,ts,jsx,tsx}",
+    "./*.{js,ts,jsx,tsx}",
   ],
   theme: {
     container: {
@@ -320,8 +323,17 @@ a { color: inherit; text-decoration: none; transition: color 0.2s ease; }
 a:hover { color: var(--heat-100); }
 `;
 
-// Vite Config Template
-export const VITE_CONFIG = `import { defineConfig } from 'vite';
+/**
+ * 生成 Vite 配置模板（E2B 沙箱）
+ *
+ * 说明：
+ * - 外部预览 URL 会通过端口号生成（如 `https://5173-xxxx.e2b.app`）
+ * - 因此 Vite 必须监听同一个端口，否则会出现 “Closed Port Error / no service running” 的白屏问题
+ *
+ * @param vitePort Vite 监听端口（需与预览端口一致）
+ */
+export function getViteConfig(vitePort: number): string {
+  return `import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 
@@ -334,10 +346,17 @@ export default defineConfig({
   },
   server: {
     host: '0.0.0.0',
-    port: 49999,
+    port: ${vitePort},
+    allowedHosts: [
+      '.e2b.app',     // E2B 沙箱域名（如 5173-xxx.e2b.app）
+      '.e2b.dev',     // E2B 开发域名
+      'localhost',
+      '127.0.0.1',
+    ],
   },
 });
 `;
+}
 
 // Utils.js Template
 export const UTILS_JS = `import { clsx } from "clsx";

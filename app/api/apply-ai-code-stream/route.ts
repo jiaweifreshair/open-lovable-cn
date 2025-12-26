@@ -10,7 +10,9 @@ import {
   fixMisplacedImports,
   normalizeXmlTags,
   repairBrokenXmlTags,
-  inferFileBoundaries
+  inferFileBoundaries,
+  validateDependencies,
+  type FileInfo
 } from '@/lib/multi-turn-fix-engine';
 
 declare global {
@@ -27,6 +29,403 @@ interface ParsedResponse {
   packages: string[];
   commands: string[];
   structure: string | null;
+}
+
+/**
+ * 确保 Tailwind 的最小“样式链路”完整可用：
+ * 1) 入口文件（src/main.*）必须引入 `./index.css`，否则 Tailwind 不会生效，页面会呈现浏览器默认样式。
+ * 2) `src/index.css` 必须包含 `@tailwind base/components/utilities` 指令（允许在其后追加自定义规则）。
+ * 3) `tailwind.config.js` 的 content 需要覆盖常见目录（AI 可能把组件放到根目录 components/ 或 app/）。
+ * 4) `postcss.config.js` 必须启用 tailwindcss 插件，否则 `@tailwind` 指令不会被编译。
+ *
+ * 为什么要做：
+ * - AI 有时会在生成/编辑时误删入口的 CSS import，或覆盖 `src/index.css` 导致 Tailwind 指令丢失。
+ * - 这会造成“CSS 渲染不行/像没加载样式”的问题，即使组件里写了大量 Tailwind class 也不会生效。
+ *
+ * 这里在 apply 阶段做兜底修复，保证预览至少不会“裸奔”。
+ */
+async function ensureTailwindWiring(
+  providerInstance: { readFile: (path: string) => Promise<string>; writeFile: (path: string, content: string) => Promise<void> },
+  sendProgress: (data: any) => Promise<void>,
+  results: { filesCreated: string[]; filesUpdated: string[] }
+): Promise<void> {
+  const entryCandidates = ['src/main.jsx', 'src/main.tsx', 'src/main.js', 'src/main.ts'];
+  let entryPath: string | null = null;
+  let entryContent: string | null = null;
+
+  for (const candidate of entryCandidates) {
+    try {
+      const content = await providerInstance.readFile(candidate);
+      if (typeof content === 'string' && content.trim().length > 0) {
+        entryPath = candidate;
+        entryContent = content;
+        break;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  // 1) 入口文件必须 import './index.css'
+  if (entryPath && entryContent) {
+    const hasIndexCssImport = /import\s+['"]\.\/index\.css['"]\s*;?/m.test(entryContent);
+    if (!hasIndexCssImport) {
+      const importLineRegex = /^import[^\n]*$/gm;
+      let lastImportEnd = -1;
+      let match: RegExpExecArray | null;
+      while ((match = importLineRegex.exec(entryContent)) !== null) {
+        lastImportEnd = match.index + match[0].length;
+      }
+
+      const insertion = `\nimport './index.css'\n`;
+      const updatedEntryContent = lastImportEnd >= 0
+        ? entryContent.slice(0, lastImportEnd) + insertion + entryContent.slice(lastImportEnd)
+        : `import './index.css'\n${entryContent}`;
+
+      await providerInstance.writeFile(entryPath, updatedEntryContent);
+
+      if (global.sandboxState?.fileCache) {
+        global.sandboxState.fileCache.files[entryPath] = {
+          content: updatedEntryContent,
+          lastModified: Date.now()
+        };
+      }
+
+      if (!results.filesUpdated.includes(entryPath)) {
+        results.filesUpdated.push(entryPath);
+      }
+
+      await sendProgress({
+        type: 'file-complete',
+        fileName: entryPath,
+        action: 'updated (tailwind import fix)'
+      });
+    }
+  }
+
+  // 2) src/index.css 必须包含 Tailwind 指令
+  let indexCssContent: string | null = null;
+  let indexCssExists = false;
+  try {
+    indexCssContent = await providerInstance.readFile('src/index.css');
+    indexCssExists = typeof indexCssContent === 'string';
+  } catch {
+    indexCssExists = false;
+  }
+
+  const directiveChecks = [
+    { name: 'base', text: '@tailwind base;', regex: /@tailwind\s+base\s*;/ },
+    { name: 'components', text: '@tailwind components;', regex: /@tailwind\s+components\s*;/ },
+    { name: 'utilities', text: '@tailwind utilities;', regex: /@tailwind\s+utilities\s*;/ }
+  ];
+
+  if (!indexCssContent || indexCssContent.trim().length === 0) {
+    const minimalIndexCss = `${directiveChecks.map(d => d.text).join('\n')}\n`;
+    await providerInstance.writeFile('src/index.css', minimalIndexCss);
+
+    if (global.sandboxState?.fileCache) {
+      global.sandboxState.fileCache.files['src/index.css'] = {
+        content: minimalIndexCss,
+        lastModified: Date.now()
+      };
+    }
+
+    const targetList = indexCssExists ? results.filesUpdated : results.filesCreated;
+    if (!targetList.includes('src/index.css')) {
+      targetList.push('src/index.css');
+    }
+
+    await sendProgress({
+      type: 'file-complete',
+      fileName: 'src/index.css',
+      action: indexCssExists ? 'updated (tailwind directives fix)' : 'created (tailwind directives)'
+    });
+  } else {
+    const missingDirectives = directiveChecks.filter(d => !d.regex.test(indexCssContent as string)).map(d => d.text);
+
+    if (missingDirectives.length > 0) {
+      const insertion = `${missingDirectives.join('\n')}\n\n`;
+
+      // @charset 必须位于 CSS 第一行（若存在），否则浏览器会忽略它
+      const charsetMatch = (indexCssContent as string).match(/^@charset\s+["'][^"']+["'];\s*\n/i);
+      const updatedIndexCss = charsetMatch
+        ? (indexCssContent as string).slice(0, charsetMatch[0].length) + insertion + (indexCssContent as string).slice(charsetMatch[0].length)
+        : insertion + (indexCssContent as string);
+
+      await providerInstance.writeFile('src/index.css', updatedIndexCss);
+
+      if (global.sandboxState?.fileCache) {
+        global.sandboxState.fileCache.files['src/index.css'] = {
+          content: updatedIndexCss,
+          lastModified: Date.now()
+        };
+      }
+
+      if (!results.filesUpdated.includes('src/index.css')) {
+        results.filesUpdated.push('src/index.css');
+      }
+
+      await sendProgress({
+        type: 'file-complete',
+        fileName: 'src/index.css',
+        action: 'updated (tailwind directives fix)'
+      });
+    }
+  }
+
+  // 3) tailwind.config.js：content 必须覆盖常见目录（避免组件放在 src/ 外导致 class 被裁剪）
+  try {
+    const tailwindConfigPath = 'tailwind.config.js';
+    const tailwindConfig = await providerInstance.readFile(tailwindConfigPath);
+    if (typeof tailwindConfig === 'string' && tailwindConfig.trim().length > 0) {
+      const requiredGlobs = [
+        './index.html',
+        './src/**/*.{js,ts,jsx,tsx}',
+        './components/**/*.{js,ts,jsx,tsx}',
+        './app/**/*.{js,ts,jsx,tsx}',
+        './*.{js,ts,jsx,tsx}',
+      ];
+
+      const missingGlobs = requiredGlobs.filter(glob => !tailwindConfig.includes(glob));
+      if (missingGlobs.length > 0) {
+        const contentArrayRegex = /content\s*:\s*\[([\s\S]*?)\]\s*,?/m;
+        const match = contentArrayRegex.exec(tailwindConfig);
+        if (match && typeof match.index === 'number') {
+          const body = match[1] ?? '';
+
+          const lineStart = tailwindConfig.lastIndexOf('\n', match.index) + 1;
+          const propertyIndent = tailwindConfig.slice(lineStart, match.index).match(/^\s*/)?.[0] ?? '';
+          const entryIndent = `${propertyIndent}  `;
+
+          const quote = body.match(/['"]\.\//)?.[0]?.[0] ?? '"';
+          const missingLines = missingGlobs.map(glob => `${entryIndent}${quote}${glob}${quote},`).join('\n');
+
+          const bodyWithoutTrailing = body.replace(/\s*$/, '');
+          const trailing = body.slice(bodyWithoutTrailing.length);
+          const updatedBody = `${bodyWithoutTrailing}\n${missingLines}${trailing || '\n'}`;
+
+          const updatedTailwindConfig = tailwindConfig.slice(0, match.index) +
+            match[0].replace(body, updatedBody) +
+            tailwindConfig.slice(match.index + match[0].length);
+
+          await providerInstance.writeFile(tailwindConfigPath, updatedTailwindConfig);
+
+          if (global.sandboxState?.fileCache) {
+            global.sandboxState.fileCache.files[tailwindConfigPath] = {
+              content: updatedTailwindConfig,
+              lastModified: Date.now()
+            };
+          }
+
+          if (!results.filesUpdated.includes(tailwindConfigPath)) {
+            results.filesUpdated.push(tailwindConfigPath);
+          }
+
+          await sendProgress({
+            type: 'file-complete',
+            fileName: tailwindConfigPath,
+            action: 'updated (tailwind content globs fix)'
+          });
+        }
+      }
+    }
+  } catch {
+    // ignore：有些模板/环境可能不存在 tailwind.config.js
+  }
+
+  // 4) postcss.config.js：必须启用 tailwindcss 插件，否则 @tailwind 指令不会生效
+  try {
+    const postcssConfigPath = 'postcss.config.js';
+    let postcssConfig: string | null = null;
+    let postcssExists = false;
+
+    try {
+      postcssConfig = await providerInstance.readFile(postcssConfigPath);
+      postcssExists = typeof postcssConfig === 'string';
+    } catch {
+      postcssExists = false;
+    }
+
+    const hasTailwindPlugin = typeof postcssConfig === 'string' && postcssConfig.includes('tailwindcss');
+    if (!hasTailwindPlugin) {
+      const minimalPostcssConfig = `export default {
+  plugins: {
+    tailwindcss: {},
+    autoprefixer: {},
+  },
+}
+`;
+
+      await providerInstance.writeFile(postcssConfigPath, minimalPostcssConfig);
+
+      if (global.sandboxState?.fileCache) {
+        global.sandboxState.fileCache.files[postcssConfigPath] = {
+          content: minimalPostcssConfig,
+          lastModified: Date.now()
+        };
+      }
+
+      const targetList = postcssExists ? results.filesUpdated : results.filesCreated;
+      if (!targetList.includes(postcssConfigPath)) {
+        targetList.push(postcssConfigPath);
+      }
+
+      await sendProgress({
+        type: 'file-complete',
+        fileName: postcssConfigPath,
+        action: postcssExists ? 'updated (tailwind postcss fix)' : 'created (tailwind postcss)'
+      });
+    }
+  } catch {
+    // ignore
+  }
+}
+
+function toSafeComponentIdentifier(rawName: string): string {
+  const cleaned = rawName
+    .replace(/\.(jsx|tsx)$/, '')
+    .replace(/[^a-zA-Z0-9_]+/g, ' ')
+    .trim();
+
+  const parts = cleaned.split(/\s+/).filter(Boolean);
+  const pascal = parts.map(p => p.charAt(0).toUpperCase() + p.slice(1)).join('');
+  const safe = pascal || 'AutoGeneratedComponent';
+  return /^[A-Za-z_]/.test(safe) ? safe : `Component${safe}`;
+}
+
+function buildPlaceholderForMissingImport(targetPath: string): string {
+  const fileName = targetPath.split('/').pop() || 'Component.jsx';
+  const ext = (fileName.split('.').pop() || '').toLowerCase();
+
+  if (ext === 'jsx' || ext === 'tsx') {
+    const componentName = toSafeComponentIdentifier(fileName);
+    return `/**
+ * 自动补全占位组件：${componentName}
+ *
+ * 做什么：用于兜底解决“导入了不存在的本地组件文件”导致的 Vite 编译失败。
+ * 为什么：生成/应用链路中可能出现 import 与落盘文件不一致或漏文件，此处先保证项目可运行。
+ *
+ * 说明：这是占位实现，后续可根据页面需求替换为完整组件。
+ */
+
+import React from 'react';
+
+export default function ${componentName}() {
+  return null;
+}
+`;
+  }
+
+  if (ext === 'js' || ext === 'ts') {
+    return `/**
+ * 自动补全占位模块
+ *
+ * 做什么：用于兜底解决缺失导入导致的构建失败。
+ * 为什么：生成链路可能漏掉某些本地工具模块。
+ */
+
+export default {};
+`;
+  }
+
+  return `/* 自动补全占位文件：${fileName} */\n`;
+}
+
+/**
+ * 确保“本地相对导入”的目标文件存在：
+ * - 若缺失：自动创建占位文件，避免 Vite 报错阻塞预览
+ *
+ * 注意：这里只做“兜底可运行”，完整业务实现应由生成阶段补齐。
+ */
+async function ensureMissingImportedFilesExist(
+  providerInstance: { runCommand: (cmd: string) => Promise<any>; writeFile: (path: string, content: string) => Promise<void> },
+  filesWithContent: FileInfo[],
+  sendProgress: (data: any) => Promise<void>,
+  results: { filesCreated: string[]; filesUpdated: string[]; errors: string[] }
+): Promise<void> {
+  const byPath = new Map<string, string>();
+  for (const f of filesWithContent) {
+    if (f?.path) byPath.set(f.path, f.content || '');
+  }
+
+  const allPaths = new Set<string>();
+  for (const p of byPath.keys()) allPaths.add(p);
+  if (global.existingFiles) {
+    for (const p of global.existingFiles) allPaths.add(p);
+  }
+
+  const filesForValidation: FileInfo[] = [];
+  for (const [path, content] of byPath.entries()) {
+    filesForValidation.push({ path, content });
+  }
+  for (const path of allPaths) {
+    if (!byPath.has(path)) {
+      filesForValidation.push({ path, content: '' });
+    }
+  }
+
+  const issues = validateDependencies(filesForValidation);
+  const missingModuleIssues = issues.filter(i => i.type === 'missing_import' && i.severity === 'error');
+  if (missingModuleIssues.length === 0) return;
+
+  const maxStubs = 25;
+  await sendProgress({
+    type: 'warning',
+    message: `检测到 ${missingModuleIssues.length} 个缺失本地导入，正在创建占位文件（最多 ${maxStubs} 个）...`
+  });
+
+  let createdCount = 0;
+  for (const issue of missingModuleIssues) {
+    if (createdCount >= maxStubs) break;
+
+    const pathMatch = issue.suggestion?.match(/需要创建文件:\s*([^\s]+)/);
+    if (!pathMatch) continue;
+
+    let targetPath = pathMatch[1].trim().replace(/[,;]$/, '');
+    if (!targetPath) continue;
+
+    if (targetPath.startsWith('/')) targetPath = targetPath.slice(1);
+
+    // 与 apply 阶段的规范化逻辑对齐：尽量落在 src/ 下
+    const fileName = targetPath.split('/').pop() || '';
+    const isConfigFile = ['tailwind.config.js', 'vite.config.js', 'package.json', 'package-lock.json', 'tsconfig.json', 'postcss.config.js'].includes(fileName);
+    if (!targetPath.startsWith('src/') && !targetPath.startsWith('public/') && targetPath !== 'index.html' && !isConfigFile) {
+      targetPath = `src/${targetPath}`;
+    }
+
+    if (global.existingFiles?.has(targetPath)) continue;
+
+    const dirPath = targetPath.includes('/') ? targetPath.substring(0, targetPath.lastIndexOf('/')) : '';
+    if (dirPath) {
+      await providerInstance.runCommand(`mkdir -p ${dirPath}`);
+    }
+
+    const placeholder = buildPlaceholderForMissingImport(targetPath);
+    await providerInstance.writeFile(targetPath, placeholder);
+
+    if (global.sandboxState?.fileCache) {
+      global.sandboxState.fileCache.files[targetPath] = {
+        content: placeholder,
+        lastModified: Date.now()
+      };
+    }
+
+    global.existingFiles?.add(targetPath);
+    results.filesCreated.push(targetPath);
+    createdCount += 1;
+
+    await sendProgress({
+      type: 'file-complete',
+      fileName: targetPath,
+      action: 'created (missing import stub)'
+    });
+  }
+
+  if (missingModuleIssues.length > maxStubs) {
+    const msg = `缺失导入过多，仅创建了前 ${maxStubs} 个占位文件，其余请重试生成或简化需求。`;
+    results.errors.push(msg);
+    await sendProgress({ type: 'warning', message: msg });
+  }
 }
 
 function parseAIResponse(response: string): ParsedResponse {
@@ -355,9 +754,14 @@ export async function POST(request: NextRequest) {
       global.existingFiles = new Set<string>();
     }
 
+    // 记录请求侧的 sandboxId（用于判断是否发生“沙箱切换”）
+    const requestedSandboxId = sandboxId;
+
     // Try to get provider from sandbox manager first
-    console.log(`[apply-ai-code-stream] Looking up provider for sandboxId: ${sandboxId}`);
-    let provider = sandboxId ? sandboxManager.getProvider(sandboxId) : sandboxManager.getActiveProvider();
+    console.log(`[apply-ai-code-stream] Looking up provider for sandboxId: ${requestedSandboxId}`);
+    let provider = requestedSandboxId
+      ? sandboxManager.getProvider(requestedSandboxId)
+      : sandboxManager.getActiveProvider();
     console.log(`[apply-ai-code-stream] Provider from sandboxManager: ${provider ? 'found' : 'not found'}`);
 
     // Fall back to global state if not found in manager
@@ -366,29 +770,41 @@ export async function POST(request: NextRequest) {
       console.log(`[apply-ai-code-stream] Provider from global state: ${provider ? 'found' : 'not found'}`);
     }
 
-    // If we have a sandboxId but no provider, try to get or create one
-    if (!provider && sandboxId) {
-      console.log(`[apply-ai-code-stream] No provider found for sandbox ${sandboxId}, attempting to get or create...`);
+    // 如果请求传了 sandboxId 但没找到 provider，尝试恢复；失败则创建新沙箱并通知前端切换
+    let replacedSandboxId: string | null = null;
+    if (!provider && requestedSandboxId) {
+      console.log(`[apply-ai-code-stream] No provider found for sandbox ${requestedSandboxId}, attempting to get or create...`);
 
       try {
-        provider = await sandboxManager.getOrCreateProvider(sandboxId);
+        provider = await sandboxManager.getOrCreateProvider(requestedSandboxId);
 
-        // If we got a new provider (not reconnected), we need to create a new sandbox
+        // E2B 当前默认不支持 reconnect：如果无法恢复，则创建新沙箱
         if (!provider.getSandboxInfo()) {
-          console.log(`[apply-ai-code-stream] Creating new sandbox since reconnection failed for ${sandboxId}`);
-          await provider.createSandbox();
+          console.log(`[apply-ai-code-stream] Reconnect not available, creating new sandbox to replace ${requestedSandboxId}`);
+          replacedSandboxId = requestedSandboxId;
+
+          const newSandboxInfo = await provider.createSandbox();
           await provider.setupViteApp();
-          sandboxManager.registerSandbox(sandboxId, provider);
+
+          // 关键修复：必须使用“新沙箱ID”注册，否则前端仍会指向旧 URL，导致 Sandbox Not Found
+          sandboxManager.registerSandbox(newSandboxInfo.sandboxId, provider);
+          global.sandboxData = { sandboxId: newSandboxInfo.sandboxId, url: newSandboxInfo.url };
+        } else {
+          const info = provider.getSandboxInfo();
+          if (info) {
+            sandboxManager.registerSandbox(info.sandboxId, provider);
+            global.sandboxData = { sandboxId: info.sandboxId, url: info.url };
+          }
         }
 
         // Update legacy global state
         global.activeSandboxProvider = provider;
-        console.log(`[apply-ai-code-stream] Successfully got provider for sandbox ${sandboxId}`);
+        console.log(`[apply-ai-code-stream] Successfully got provider for sandbox ${requestedSandboxId}`);
       } catch (providerError) {
-        console.error(`[apply-ai-code-stream] Failed to get or create provider for sandbox ${sandboxId}:`, providerError);
+        console.error(`[apply-ai-code-stream] Failed to get or create provider for sandbox ${requestedSandboxId}:`, providerError);
         return NextResponse.json({
           success: false,
-          error: `Failed to create sandbox provider for ${sandboxId}. The sandbox may have expired.`,
+          error: `无法为 sandbox ${requestedSandboxId} 获取/创建 provider（沙箱可能已过期或不可用）。`,
           results: {
             filesCreated: [],
             packagesInstalled: [],
@@ -403,7 +819,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // If we still don't have a provider, create a new one
+    // 如果仍然没有 provider，创建新沙箱
     if (!provider) {
       console.log(`[apply-ai-code-stream] No active provider found, creating new sandbox...`);
       try {
@@ -442,6 +858,27 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // 二次兜底：provider 存在但底层沙箱可能已被外部超时/回收，先做一次轻量健康检查
+    // 失败时自动创建新沙箱，并在 SSE 中通知前端切换预览 URL（不主动销毁旧沙箱）
+    try {
+      await provider.runCommand('pwd');
+    } catch (e) {
+      const previousId =
+        provider.getSandboxInfo?.()?.sandboxId || requestedSandboxId || null;
+      replacedSandboxId = replacedSandboxId ?? previousId;
+      console.warn('[apply-ai-code-stream] 沙箱健康检查失败，创建新沙箱用于继续执行:', e);
+
+      const { SandboxFactory } = await import('@/lib/sandbox/factory');
+      const newProvider = SandboxFactory.create();
+      const newInfo = await newProvider.createSandbox();
+      await newProvider.setupViteApp();
+
+      sandboxManager.registerSandbox(newInfo.sandboxId, newProvider);
+      global.activeSandboxProvider = newProvider;
+      global.sandboxData = { sandboxId: newInfo.sandboxId, url: newInfo.url };
+      provider = newProvider;
+    }
+
     // Create a response stream for real-time updates
     const encoder = new TextEncoder();
     const stream = new TransformStream();
@@ -453,8 +890,16 @@ export async function POST(request: NextRequest) {
       await writer.write(encoder.encode(message));
     };
 
+    const sandboxInfoForClient = provider.getSandboxInfo();
+    if (!sandboxInfoForClient) {
+      return NextResponse.json(
+        { success: false, error: 'Sandbox provider has no sandboxInfo' },
+        { status: 500 },
+      );
+    }
+
     // Start processing in background (pass provider and request to the async function)
-    (async (providerInstance, req) => {
+    (async (providerInstance, req, sandboxInfo, previousSandboxId) => {
       const results = {
         filesCreated: [] as string[],
         filesUpdated: [] as string[],
@@ -464,8 +909,19 @@ export async function POST(request: NextRequest) {
         commandsExecuted: [] as string[],
         errors: [] as string[]
       };
+      // 记录本次 apply 写入的文件内容，用于后续依赖校验（缺失导入兜底）
+      const filesWithContent: FileInfo[] = [];
 
       try {
+        // 先同步沙箱信息给前端：若发生重建/切换，前端必须更新 iframe URL
+        await sendProgress({
+          type: 'sandbox',
+          sandboxId: sandboxInfo.sandboxId,
+          url: sandboxInfo.url,
+          provider: sandboxInfo.provider,
+          replacedSandboxId: previousSandboxId && previousSandboxId !== sandboxInfo.sandboxId ? previousSandboxId : undefined
+        });
+
         await sendProgress({
           type: 'start',
           message: 'Starting code application...',
@@ -538,7 +994,8 @@ export async function POST(request: NextRequest) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   packages: uniquePackages,
-                  sandboxId: sandboxId || providerInstance.getSandboxInfo()?.sandboxId
+                  // 关键修复：永远使用 provider 当前绑定的 sandboxId（请求侧 sandboxId 可能已失效）
+                  sandboxId: providerInstance.getSandboxInfo()?.sandboxId
                 })
               });
 
@@ -764,6 +1221,9 @@ export async function POST(request: NextRequest) {
               };
             }
 
+            // 记录本次写入的文件内容，用于后续缺失导入兜底（只需要内容，不影响最终落盘）
+            filesWithContent.push({ path: normalizedPath, content: fileContent });
+
             if (isUpdate) {
               if (results.filesUpdated) results.filesUpdated.push(normalizedPath);
             } else {
@@ -915,6 +1375,15 @@ export default function App() {
               await providerInstance.writeFile('src/App.jsx', fallbackAppContent);
               console.log('[apply-ai-code-stream] ✅ Fallback App.jsx created with', componentImports.length, 'components');
               results.filesCreated.push('src/App.jsx');
+              global.existingFiles?.add('src/App.jsx');
+              filesWithContent.push({ path: 'src/App.jsx', content: fallbackAppContent });
+
+              if (global.sandboxState?.fileCache) {
+                global.sandboxState.fileCache.files['src/App.jsx'] = {
+                  content: fallbackAppContent,
+                  lastModified: Date.now()
+                };
+              }
 
               await sendProgress({
                 type: 'file-complete',
@@ -926,6 +1395,28 @@ export default function App() {
               results.errors.push(`Failed to create fallback App.jsx: ${(fallbackError as Error).message}`);
             }
           }
+        }
+
+        // 🔧 兜底修复：确保 Tailwind 样式链路未被 AI 覆盖破坏（避免预览呈现“浏览器默认样式”）
+        try {
+          await ensureTailwindWiring(providerInstance, sendProgress, results);
+        } catch (tailwindError) {
+          console.warn('[apply-ai-code-stream] Tailwind wiring check failed:', tailwindError);
+          await sendProgress({
+            type: 'warning',
+            message: `Tailwind wiring check skipped: ${(tailwindError as Error).message}`
+          });
+        }
+
+        // 🔧 兜底修复：缺失的本地相对导入会导致 Vite 直接报错，这里自动创建占位文件保证可运行
+        try {
+          await ensureMissingImportedFilesExist(providerInstance, filesWithContent, sendProgress, results);
+        } catch (missingImportError) {
+          console.warn('[apply-ai-code-stream] Missing import stub step failed:', missingImportError);
+          await sendProgress({
+            type: 'warning',
+            message: `Missing import fix skipped: ${(missingImportError as Error).message}`
+          });
         }
 
         // Step 3: Execute commands
@@ -1043,7 +1534,7 @@ export default function App() {
           console.debug('[apply-ai-code-stream] Writer close error (expected if stream ended early):', closeError);
         }
       }
-    })(provider, request);
+    })(provider, request, sandboxInfoForClient, replacedSandboxId ?? requestedSandboxId);
 
     // Return the stream
     return new Response(stream.readable, {

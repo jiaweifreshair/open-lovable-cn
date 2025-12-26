@@ -21,6 +21,10 @@ interface TechnicalPlanViewProps {
   onEdit?: () => void;
   /** 取消回调 */
   onCancel?: () => void;
+  /** 推理内容（DeepSeek R1 等推理模型的思考过程） */
+  reasoningContent?: string;
+  /** 是否正在推理中 */
+  isReasoning?: boolean;
 }
 
 export default function TechnicalPlanView({
@@ -30,16 +34,28 @@ export default function TechnicalPlanView({
   suggestedManifest,
   onConfirm,
   onEdit,
-  onCancel
+  onCancel,
+  reasoningContent,
+  isReasoning
 }: TechnicalPlanViewProps) {
   const contentRef = useRef<HTMLDivElement>(null);
+  const reasoningRef = useRef<HTMLDivElement>(null);
+  // 推理展示区是否折叠
+  const [isReasoningCollapsed, setIsReasoningCollapsed] = useState(false);
 
-  // 自动滚动到底部
+  // 自动滚动到底部（方案内容）
   useEffect(() => {
     if (contentRef.current && planContent) {
       contentRef.current.scrollTop = contentRef.current.scrollHeight;
     }
   }, [planContent]);
+
+  // 自动滚动推理内容到底部
+  useEffect(() => {
+    if (reasoningRef.current && reasoningContent && !isReasoningCollapsed) {
+      reasoningRef.current.scrollTop = reasoningRef.current.scrollHeight;
+    }
+  }, [reasoningContent, isReasoningCollapsed]);
 
   return (
     <div className="h-full flex flex-col bg-white">
@@ -120,6 +136,83 @@ export default function TechnicalPlanView({
           )}
         </div>
       </div>
+
+      {/* 🧠 推理过程展示区（DeepSeek R1 等推理模型） */}
+      {(isReasoning || reasoningContent) && (
+        <div className="px-6 py-3 bg-gradient-to-r from-purple-50 to-indigo-50 border-b border-purple-200">
+          {/* 推理状态头部 */}
+          <div
+            className="flex items-center justify-between cursor-pointer"
+            onClick={() => setIsReasoningCollapsed(!isReasoningCollapsed)}
+          >
+            <div className="flex items-center gap-2">
+              {isReasoning ? (
+                <>
+                  <div className="relative">
+                    <div className="w-5 h-5 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
+                    <div className="absolute inset-0 w-5 h-5 border-2 border-purple-300 rounded-full opacity-30" />
+                  </div>
+                  <span className="text-sm font-medium text-purple-700">
+                    🧠 AI 正在深度思考...
+                  </span>
+                  <span className="text-xs text-purple-500 animate-pulse">
+                    {reasoningContent ? `已思考 ${reasoningContent.length} 字` : '分析需求中'}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="text-purple-600">✓</span>
+                  <span className="text-sm font-medium text-purple-700">
+                    深度思考完成
+                  </span>
+                  <span className="text-xs text-purple-500">
+                    共 {reasoningContent?.length || 0} 字
+                  </span>
+                </>
+              )}
+            </div>
+            <button className="text-purple-500 hover:text-purple-700 transition-colors">
+              <svg
+                className={`w-5 h-5 transition-transform duration-200 ${isReasoningCollapsed ? '' : 'rotate-180'}`}
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+          </div>
+
+          {/* 推理内容展示 */}
+          {!isReasoningCollapsed && reasoningContent && (
+            <div
+              ref={reasoningRef}
+              className="mt-3 bg-purple-950 border border-purple-700 rounded-lg p-4 max-h-48 overflow-y-auto scrollbar-thin scrollbar-thumb-purple-600 scrollbar-track-purple-900"
+            >
+              <pre className="text-xs font-mono text-purple-300 whitespace-pre-wrap leading-relaxed">
+                {reasoningContent}
+                {isReasoning && (
+                  <span className="inline-block w-2 h-3 bg-purple-400 animate-pulse ml-0.5" />
+                )}
+              </pre>
+            </div>
+          )}
+
+          {/* 推理中但无内容时的占位 */}
+          {!isReasoningCollapsed && isReasoning && !reasoningContent && (
+            <div className="mt-3 bg-purple-950 border border-purple-700 rounded-lg p-4">
+              <div className="flex items-center gap-2 text-purple-400">
+                <div className="flex space-x-1">
+                  <div className="w-2 h-2 bg-purple-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <div className="w-2 h-2 bg-purple-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                  <div className="w-2 h-2 bg-purple-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                </div>
+                <span className="text-xs">正在启动深度推理引擎...</span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Summary Cards (生成完成后显示) */}
       {!isGenerating && summary && (

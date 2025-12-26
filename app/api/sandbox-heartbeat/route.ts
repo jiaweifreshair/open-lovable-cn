@@ -6,7 +6,8 @@
  * 使用场景：
  * - 前端每60秒发送一次心跳
  * - 后端记录最后心跳时间
- * - 超过5分钟无心跳则自动清理沙箱
+ * - 默认不自动清理沙箱（避免用户未确认就销毁导致预览失效）
+ *   如需兜底自动清理，请设置 `OPEN_LOVABLE_SANDBOX_AUTOCLEANUP=1`
  */
 
 import { NextRequest, NextResponse } from 'next/server';

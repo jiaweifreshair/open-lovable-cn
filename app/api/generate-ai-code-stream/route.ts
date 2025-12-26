@@ -37,9 +37,128 @@ import type {
   GenerationRequest,
   PlanGenerationResponse
 } from '@/types/generation';
+import { isE2eMockEnabled, runE2eMockGeneration } from '@/lib/e2e/mock-generation';
+import {
+  formatScrapeChunksForPrompt,
+  formatScrapeProfileForPrompt,
+  selectRelevantScrapeChunks,
+  type ScrapeIndex
+} from '@/utils/scrape-index';
+
+/**
+ * 生成阶段的输入长度兜底截断。
+ *
+ * 背景：
+ * - 某些模型/网关对单次请求的“输入字符长度”存在硬上限（例如 98304）。
+ * - 克隆网站时，若把整站抓取内容（几十万字符）直接塞进 prompt，会触发 BadRequest 并导致生成失败。
+ *
+ * 策略：
+ * - 对“用户需求”做确定性裁剪：保留开头+结尾，并插入截断标记，避免丢失关键约束（通常在结尾）。
+ * - 这不是内容摘要（不调用模型），仅用于保证请求可被接受并继续生成。
+ */
+function truncatePromptForModelInput(prompt: string, maxChars: number): string {
+  const text = typeof prompt === 'string' ? prompt : String(prompt || '');
+  if (text.length <= maxChars) return text;
+
+  const headSize = Math.floor(maxChars * 0.65);
+  const tailSize = Math.floor(maxChars * 0.25);
+  const head = text.slice(0, headSize);
+  const tail = text.slice(text.length - tailSize);
+
+  const notice = `\n\n[已自动截断：原始长度=${text.length}，保留前${headSize}字符与后${tailSize}字符，用于避免模型输入上限]\n\n`;
+  const remaining = maxChars - head.length - tail.length - notice.length;
+  const middle = remaining > 0 ? '\n'.repeat(Math.min(2, remaining)) : '';
+
+  return `${head}${notice}${middle}${tail}`.slice(0, maxChars);
+}
+
+/**
+ * 🔥 根据模型动态获取上下文限制
+ *
+ * 不同模型有不同的 input token 限制：
+ * - DeepSeek R1: 64K tokens (~200K 字符，留 buffer 给 system prompt 和 output)
+ * - Gemini 2.0: 1M tokens（实际使用时限制在合理范围）
+ * - Claude: 200K tokens
+ * - GPT-4: 128K tokens
+ * - 默认: 保守的 32K tokens
+ *
+ * 返回值为字符数（约 4 字符 = 1 token）
+ */
+function getModelContextLimits(model: string): {
+  maxChunks: number;       // 最大 chunk 数量
+  maxChunkChars: number;   // chunk 总字符数限制
+  maxPromptChars: number;  // prompt 最大字符数
+} {
+  const modelLower = model.toLowerCase();
+
+  // DeepSeek R1 系列 - 64K tokens input
+  if (modelLower.includes('deepseek-r1') || modelLower.includes('deepseek-reasoner')) {
+    return {
+      maxChunks: 30,           // 更多 chunks
+      maxChunkChars: 80000,    // 80K 字符 (~20K tokens)，留空间给 system prompt 和续写
+      maxPromptChars: 100000   // 100K 字符
+    };
+  }
+
+  // DeepSeek V3/Chat - 64K tokens
+  if (modelLower.includes('deepseek')) {
+    return {
+      maxChunks: 25,
+      maxChunkChars: 60000,
+      maxPromptChars: 80000
+    };
+  }
+
+  // Gemini 系列 - 1M/2M tokens (但实际使用时不需要那么多)
+  if (modelLower.includes('gemini')) {
+    return {
+      maxChunks: 40,
+      maxChunkChars: 120000,   // 120K 字符
+      maxPromptChars: 150000
+    };
+  }
+
+  // Claude 系列 - 200K tokens
+  if (modelLower.includes('claude')) {
+    return {
+      maxChunks: 35,
+      maxChunkChars: 100000,
+      maxPromptChars: 120000
+    };
+  }
+
+  // GPT-4 系列 - 128K tokens
+  if (modelLower.includes('gpt-4') || modelLower.includes('gpt-5')) {
+    return {
+      maxChunks: 30,
+      maxChunkChars: 80000,
+      maxPromptChars: 100000
+    };
+  }
+
+  // Qwen 系列 - 32K tokens
+  if (modelLower.includes('qwen') || modelLower.includes('qwq')) {
+    return {
+      maxChunks: 15,
+      maxChunkChars: 40000,
+      maxPromptChars: 50000
+    };
+  }
+
+  // 默认保守限制 (适用于未知模型)
+  return {
+    maxChunks: 8,
+    maxChunkChars: 15000,
+    maxPromptChars: 20000
+  };
+}
 
 // Force dynamic route to enable streaming
 export const dynamic = 'force-dynamic';
+
+// Set maximum execution time to 5 minutes (300 seconds)
+// Required for long-running AI generations with reasoning models like DeepSeek R1
+export const maxDuration = 300;
 
 /**
  * 将 unknown 错误转换为可读字符串，避免把对象直接抛给用户或日志。
@@ -1250,9 +1369,43 @@ MORPH FAST APPLY MODE (EDIT-ONLY):
             contextParts.push('Use <file path="...">content</file> tags for EVERY file');
             contextParts.push('NEVER output "Generated Files:" as plain text');
           }
-          
-          // Add conversation context (scraped websites, etc)
-          if (context.conversationContext) {
+
+          // 🔥 Full 模式下使用 scrapeIndex 概要（如果有）
+          // 这比直接截取 scrapedWebsites 内容更结构化，保留更多关键信息
+          if (context.scrapeIndex?.profile) {
+            const siteProfile = formatScrapeProfileForPrompt(context.scrapeIndex.profile);
+            if (siteProfile) {
+              contextParts.push('\n📋 SITE PROFILE (structured from scraped content):');
+              contextParts.push(siteProfile);
+
+              // 🔥 根据模型动态获取上下文限制
+              // DeepSeek R1 可用 80K 字符，Gemini 可用 120K，默认保守 15K
+              const contextLimits = getModelContextLimits(model);
+              console.log(`[generate-ai-code-stream] 📊 Model context limits for ${model}:`, contextLimits);
+
+              // 🔥 在 full 模式下注入尽可能多的抓取内容片段
+              const scrapeIndex = context.scrapeIndex as ScrapeIndex;
+              if (scrapeIndex.chunks && scrapeIndex.chunks.length > 0) {
+                // 动态选择 chunks：根据模型能力选择更多内容
+                const selectedChunks = scrapeIndex.chunks.slice(0, contextLimits.maxChunks);
+                let totalChars = 0;
+                const chunks: string[] = [];
+                for (const chunk of selectedChunks) {
+                  if (totalChars + chunk.text.length > contextLimits.maxChunkChars) break;
+                  chunks.push(`[${chunk.heading || 'Section'}]\n${chunk.text}`);
+                  totalChars += chunk.text.length;
+                }
+                if (chunks.length > 0) {
+                  contextParts.push('\n📄 SCRAPED CONTENT EXCERPTS (use these for text/content):');
+                  contextParts.push(chunks.join('\n\n---\n\n'));
+                  console.log(`[generate-ai-code-stream] 📊 Injected ${chunks.length}/${scrapeIndex.chunks.length} chunks, ${totalChars} chars`);
+                }
+              }
+            }
+          }
+
+          // Add conversation context (scraped websites, etc) - 仅在没有 scrapeIndex 时使用旧逻辑
+          if (context.conversationContext && !context.scrapeIndex?.profile) {
             if (context.conversationContext.scrapedWebsites?.length > 0) {
               contextParts.push('\nScraped Websites in Context:');
               context.conversationContext.scrapedWebsites.forEach((site: any) => {
@@ -1284,6 +1437,27 @@ MORPH FAST APPLY MODE (EDIT-ONLY):
               contextParts.push('<file path="src/components/NewComponent.jsx">');
               contextParts.push('// Full file content when creating new files');
               contextParts.push('</file>');
+            } else {
+              // 🔥 非 Morph 模式下，强制要求使用 <file> 标签格式输出
+              // 这对于 DeepSeek R1 等推理模型尤其重要，它们可能会直接输出代码而不使用标签
+              contextParts.push('\n🚨 MANDATORY OUTPUT FORMAT (CRITICAL - MUST FOLLOW):');
+              contextParts.push('You MUST wrap ALL generated code in <file> tags. Example:');
+              contextParts.push('<file path="src/index.css">');
+              contextParts.push('@tailwind base;');
+              contextParts.push('@tailwind components;');
+              contextParts.push('@tailwind utilities;');
+              contextParts.push('</file>');
+              contextParts.push('<file path="src/App.jsx">');
+              contextParts.push('import React from "react";');
+              contextParts.push('// ... complete code');
+              contextParts.push('export default App;');
+              contextParts.push('</file>');
+              contextParts.push('');
+              contextParts.push('❌ NEVER output raw code without <file> tags');
+              contextParts.push('❌ NEVER output markdown code blocks (```jsx)');
+              contextParts.push('❌ NEVER output "Generated Files:" text');
+              contextParts.push('✅ ALWAYS use <file path="...">code</file> format');
+              contextParts.push('✅ Generate index.css FIRST, then App.jsx, then components');
             }
             fullPrompt = `CONTEXT:\n${contextParts.join('\n')}\n\nUSER REQUEST:\n${prompt}`;
           }
@@ -1680,6 +1854,39 @@ It's better to have 3 complete files than 10 incomplete files.`
                missingFilesReminder += '\n⚠️ WARNING: You have NOT yet generated index.css! You should generate it for styling.';
              }
 
+             // 🔥 检查 App.jsx 的 import 是否都有对应文件（关键！）
+             if (hasAppFile) {
+               const appFileContent = normalizedCode.match(/<file\s+path="(?:src\/)?App\.[jt]sx?">([\s\S]*?)<\/file>/);
+               if (appFileContent) {
+                 const importRegex = /import\s+(\w+)\s+from\s+['"](\.\/[^'"]+)['"]/g;
+                 const missingComponents: string[] = [];
+                 let impMatch;
+                 while ((impMatch = importRegex.exec(appFileContent[1])) !== null) {
+                   const componentName = impMatch[1];
+                   const importPath = impMatch[2];
+                   const normalizedPath = importPath.replace(/^\.\//, 'src/').replace(/\/?$/, '');
+
+                   // 检查是否有对应文件
+                   const hasFile = generatedFiles.some(f =>
+                     f.startsWith(normalizedPath) &&
+                     (f.endsWith('.jsx') || f.endsWith('.tsx') || f.endsWith('.js') || f.endsWith('.ts'))
+                   );
+
+                   if (!hasFile) {
+                     missingComponents.push(componentName);
+                   }
+                 }
+
+                 if (missingComponents.length > 0) {
+                   missingFilesReminder += `\n\n🚨 CRITICAL: App.jsx imports these components but they are NOT generated yet:`;
+                   missingComponents.forEach(c => {
+                     missingFilesReminder += `\n   - ${c} (MUST generate <file path="src/components/${c}.jsx">)`;
+                   });
+                   missingFilesReminder += `\n\n⚠️ You MUST generate ALL missing components listed above!`;
+                 }
+               }
+             }
+
              // 🔥 分析截断点上下文，帮助 AI 更准确地继续
              // 🔥 使用灵活空白正则
              const lastFileMatch = normalizedCode.match(/<file\s+path="([^"]+)">[^]*$/);
@@ -1772,25 +1979,42 @@ ${continuationInstruction}
               // Clear connection timer as we have established connection
               clearTimeout(firstTokenTimer);
 
-              // 🟢 Optimization: Wrap textStream to detect IDLE timeouts during generation
-              if (result && result.textStream) {
-                  const originalStream = result.textStream;
+              // 🟢 Optimization: Wrap fullStream to detect IDLE timeouts during generation
+              // 🔧 修复：使用 fullStream 替代 textStream，支持推理模型
+              // - 推理模型（如 DeepSeek R1）在思考期间只输出 reasoning-delta
+              // - 如果只监听 textStream，会因为长时间无输出而超时
+              // - 使用 fullStream 可以捕获所有事件，在收到任何事件时重置 idle timer
+              if (result && result.fullStream) {
+                  const originalFullStream = result.fullStream;
+                  let textChunks: string[] = [];
+
                   const wrappedStream = (async function* () {
                       let idleTimer = setTimeout(() => {
                           controller.abort('AI_STREAM_IDLE_TIMEOUT');
                       }, streamIdleTimeoutMs);
-                      
+
                       const totalTimer = setTimeout(() => {
                           controller.abort('AI_STREAM_TOTAL_TIMEOUT');
                       }, streamTotalTimeoutMs);
 
                       try {
-                          for await (const chunk of originalStream) {
+                          for await (const part of originalFullStream) {
+                              // 收到任何事件都重置 idle timer（包括 reasoning-delta）
                               clearTimeout(idleTimer);
-                              yield chunk;
                               idleTimer = setTimeout(() => {
                                   controller.abort('AI_STREAM_IDLE_TIMEOUT');
                               }, streamIdleTimeoutMs);
+
+                              // 只输出 text-delta 内容（实际代码）
+                              // 兼容性：不同 provider / SDK 版本可能用 `text` 或 `textDelta` 字段承载增量文本
+                              if (part.type === 'text-delta') {
+                                  const text = part.text || (part as any).textDelta || '';
+                                  if (text) {
+                                      yield text;
+                                  }
+                              }
+                              // reasoning-delta 用于保持连接活跃，不输出到代码流
+                              // 但如果需要显示思考过程，可以在这里发送 SSE 事件
                           }
                       } catch (err: any) {
                           if (signal.aborted) {
@@ -1803,7 +2027,7 @@ ${continuationInstruction}
                           clearTimeout(totalTimer);
                       }
                   })();
-                  
+
                   result = { ...result, textStream: wrappedStream };
               }
 
@@ -2046,11 +2270,14 @@ ${continuationInstruction}
           const finishReason = await result!.finishReason;
           console.log(`[generate-ai-code-stream] Loop ${loopCount} finished with reason: ${finishReason}`);
 
-          // 🔄 过滤 DeepSeek R1 等推理模型的 <think> 标签（思考过程不应出现在生成代码中）
-          if (generatedCode.includes('<think>')) {
+          // 🔄 过滤 DeepSeek R1 等推理模型的 <think>/<thinking> 标签（思考过程不应出现在生成代码中）
+          if (generatedCode.includes('<think') || generatedCode.includes('<reasoning>')) {
             const originalLength = generatedCode.length;
+            // 过滤 <think>...</think> 和 <thinking>...</thinking> 和 <reasoning>...</reasoning>
             generatedCode = generatedCode.replace(/<think>[\s\S]*?<\/think>/gi, '');
-            console.log(`[generate-ai-code-stream] 🧹 Filtered <think> tags: ${originalLength - generatedCode.length} chars removed`);
+            generatedCode = generatedCode.replace(/<thinking>[\s\S]*?<\/thinking>/gi, '');
+            generatedCode = generatedCode.replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, '');
+            console.log(`[generate-ai-code-stream] 🧹 Filtered thinking tags: ${originalLength - generatedCode.length} chars removed`);
           }
 
           // 🔥 CRITICAL FIX: Quick truncation detection BEFORE deciding on continuation
@@ -2221,6 +2448,66 @@ ${continuationInstruction}
                 if (trimmedLastLine.endsWith(',') && (openBraces > closeBraces || openBrackets > closeBrackets)) {
                   quickTruncationDetected = true;
                   console.warn('[generate-ai-code-stream] 🚨 Quick check: Array/object element truncated (ends with comma in unclosed structure)');
+                }
+              }
+            }
+
+            // 🔥 Check 9: App.jsx Import 完整性检查（关键！）
+            // 检查 App.jsx 导入的组件是否都已生成对应文件
+            if (!quickTruncationDetected && !isEdit) {
+              // 提取 App.jsx 的内容
+              const appFileMatch = generatedCode.match(/<file\s+path="(?:src\/)?App\.[jt]sx?">([\s\S]*?)<\/file>/);
+              if (appFileMatch) {
+                const appContent = appFileMatch[1];
+
+                // 提取所有 import 语句（相对路径导入）
+                const importRegex = /import\s+(?:\w+|\{[^}]+\})\s+from\s+['"](\.\/[^'"]+)['"]/g;
+                const imports: string[] = [];
+                let importMatch;
+                while ((importMatch = importRegex.exec(appContent)) !== null) {
+                  imports.push(importMatch[1]);
+                }
+
+                if (imports.length > 0) {
+                  // 获取所有已生成的文件路径
+                  const generatedFilePaths = new Set<string>();
+                  const filePathRegex = /<file\s+path="([^"]+)">/g;
+                  let pathMatch;
+                  while ((pathMatch = filePathRegex.exec(generatedCode)) !== null) {
+                    generatedFilePaths.add(pathMatch[1]);
+                  }
+
+                  // 检查每个 import 是否有对应的文件
+                  const missingImports: string[] = [];
+                  for (const importPath of imports) {
+                    // 标准化路径：./components/Header -> src/components/Header.jsx
+                    const normalizedPath = importPath
+                      .replace(/^\.\//, 'src/')
+                      .replace(/\/?$/, '');
+
+                    // 检查各种可能的文件扩展名
+                    const possiblePaths = [
+                      `${normalizedPath}.jsx`,
+                      `${normalizedPath}.tsx`,
+                      `${normalizedPath}.js`,
+                      `${normalizedPath}.ts`,
+                      `${normalizedPath}/index.jsx`,
+                      `${normalizedPath}/index.tsx`,
+                    ];
+
+                    const found = possiblePaths.some(p => generatedFilePaths.has(p));
+                    if (!found) {
+                      missingImports.push(importPath);
+                    }
+                  }
+
+                  if (missingImports.length > 0) {
+                    quickTruncationDetected = true;
+                    console.warn(`[generate-ai-code-stream] 🚨 Quick check: App.jsx imports ${imports.length} components, but ${missingImports.length} are MISSING:`);
+                    missingImports.forEach(m => console.warn(`[generate-ai-code-stream]   - ${m}`));
+                  } else {
+                    console.log(`[generate-ai-code-stream] ✅ All ${imports.length} App.jsx imports have corresponding files`);
+                  }
                 }
               }
             }
@@ -2998,11 +3285,31 @@ async function generateManifest(
 ): Promise<FileManifestItem[]> {
   console.log('[generateManifest] 开始生成文件清单...');
 
+  // 🔥 根据模型动态获取上下文限制
+  const contextLimits = getModelContextLimits(model);
+  console.log(`[generateManifest] 📊 Model context limits for ${model}:`, contextLimits);
+
+  // 🔥 防止"整站抓取内容"导致输入超长
+  // 优先使用结构化概要（体积小），prompt 只作为"用户约束"来源
+  const scrapeIndex = (context?.scrapeIndex ?? null) as ScrapeIndex | null;
+  const siteProfileText = scrapeIndex?.profile ? formatScrapeProfileForPrompt(scrapeIndex.profile) : '';
+
+  // 动态计算 prompt 限制：有 profile 时可以用更多空间给抓取内容
+  const promptLimit = siteProfileText
+    ? Math.floor(contextLimits.maxPromptChars * 0.3)  // 30% 给 prompt
+    : Math.floor(contextLimits.maxPromptChars * 0.5); // 50% 给 prompt
+  const safePrompt = truncatePromptForModelInput(prompt, promptLimit);
+
   const manifestPrompt = `
 分析以下需求，生成需要创建的文件清单（仅列出文件，不生成代码）。
 
+${siteProfileText ? `
+站点结构化概要（用于推断页面区块/导航/模块，不要把整站正文塞进文件清单）：
+${siteProfileText}
+` : ''}
+
 用户需求：
-${prompt}
+${safePrompt}
 
 ${context?.currentFiles ? `
 现有文件：
@@ -3189,6 +3496,22 @@ async function generateSingleFile(
 ): Promise<{ path: string; content: string }> {
   console.log(`[generateSingleFile] 开始生成文件: ${manifestItem.path}`);
 
+  // 🔥 单文件生成也需要兜底截断（否则容易在携带大量抓取内容时触发模型输入上限）
+  // 优先按需注入“与当前文件相关”的抓取分块，避免粗暴截断导致还原信息丢失
+  const scrapeIndex = (context?.scrapeIndex ?? null) as ScrapeIndex | null;
+  const siteProfileText = scrapeIndex?.profile ? formatScrapeProfileForPrompt(scrapeIndex.profile) : '';
+  const relevantChunks = scrapeIndex
+    ? selectRelevantScrapeChunks({
+        scrapeIndex,
+        manifestItem,
+        maxChunks: 4,
+        maxTotalChars: 9000,
+        perChunkMaxChars: 2200
+      })
+    : [];
+  const relevantChunksText = relevantChunks.length > 0 ? formatScrapeChunksForPrompt(relevantChunks) : '';
+  const safePrompt = truncatePromptForModelInput(prompt, siteProfileText || relevantChunksText ? 16000 : 24000);
+
   /**
    * 从模型输出中提取单文件内容。
    *
@@ -3326,8 +3649,18 @@ ${dependencyContents.length > 0 ? `
 ${dependencyContents.join('\n')}
 ` : ''}
 
+${siteProfileText ? `
+站点结构化概要（用于保持布局/文案一致）：
+${siteProfileText}
+` : ''}
+
+${relevantChunksText ? `
+与当前文件最相关的原站内容片段（按需检索，可能是节选；用于还原结构/文案，不要逐字照抄无关部分）：
+${relevantChunksText}
+` : ''}
+
 原始需求：
-${prompt}
+${safePrompt}
 
 🎯 关键要求：
 ${requirementLines.join('\n')}
@@ -3865,188 +4198,6 @@ function normalizeManifestFiles(parsed: any): FileManifestItem[] {
 }
 
 /**
- * 判断是否启用 E2E/离线 Mock 模式。
- *
- * 目的：让端到端测试在无外部网络/密钥（E2B、Firecrawl、LLM）时也能跑通。
- */
-function isE2eMockEnabled(): boolean {
-  return process.env.OPEN_LOVABLE_E2E === '1';
-}
-
-/**
- * E2E/离线模式下的固定 manifest，用于验证 Plan → Confirm → Code 生成链路。
- */
-function getE2eMockManifest(): FileManifestItem[] {
-  return [
-    {
-      path: 'src/components/Header.jsx',
-      description: '页面头部组件，包含站点标题与导航',
-      type: 'component',
-      dependencies: [],
-      isCritical: true,
-      estimatedLines: 40,
-    },
-    {
-      path: 'src/App.jsx',
-      description: '应用主入口，组合页面结构',
-      type: 'page',
-      dependencies: ['src/components/Header.jsx'],
-      isCritical: true,
-      estimatedLines: 80,
-    },
-    {
-      path: 'src/index.css',
-      description: '全局样式（用于 Tailwind 指令与基础样式）',
-      type: 'style',
-      dependencies: [],
-      isCritical: false,
-      estimatedLines: 20,
-    }
-  ];
-}
-
-/**
- * E2E/离线模式下根据文件路径生成固定文件内容。
- */
-function getE2eMockFileContent(filePath: string): string {
-  if (filePath.endsWith('src/components/Header.jsx')) {
-    return `import React from 'react';
-
-export default function Header() {
-  return (
-    <header className="w-full border-b border-gray-200 bg-white">
-      <div className="mx-auto max-w-5xl px-6 py-4 flex items-center justify-between">
-        <div className="text-lg font-semibold text-gray-900">Open Lovable Mock</div>
-        <nav className="text-sm text-gray-600 flex gap-4">
-          <a href="#" className="hover:text-gray-900">首页</a>
-          <a href="#" className="hover:text-gray-900">关于</a>
-        </nav>
-      </div>
-    </header>
-  );
-}
-`;
-  }
-
-  if (filePath.endsWith('src/App.jsx')) {
-    return `import React from 'react';
-import Header from './components/Header';
-
-export default function App() {
-  return (
-    <div className="min-h-screen bg-gray-50">
-      <Header />
-      <main className="mx-auto max-w-5xl px-6 py-10">
-        <h1 className="text-3xl font-bold text-gray-900 mb-3">代码已成功生成</h1>
-        <p className="text-gray-700">这是用于 E2E 验证的 Mock 页面内容。</p>
-      </main>
-    </div>
-  );
-}
-`;
-  }
-
-  if (filePath.endsWith('src/index.css')) {
-    return `@tailwind base;
-@tailwind components;
-@tailwind utilities;
-`;
-  }
-
-  return `// Mock file: ${filePath}\n`;
-}
-
-/**
- * E2E/离线 Mock 生成：根据 generation.mode 模拟输出 SSE 事件。
- *
- * 注意：该路由名含 "stream"，因此这里统一走 SSE 输出，便于前端复用解析逻辑。
- */
-async function runE2eMockGeneration(
-  generation: GenerationConfig,
-  sendProgress: (data: any) => Promise<void>
-): Promise<void> {
-  const manifest = getE2eMockManifest();
-
-  if (generation.mode === 'plan') {
-    const planContent = `# 技术实现方案
-
-## 1. 需求分析
-- E2E Mock：验证从 Plan 到代码生成的完整链路
-
-## 4. 文件拆解
-### 文件清单
-\`\`\`json
-{
-  "files": ${JSON.stringify(manifest, null, 2)}
-}
-\`\`\`
-`;
-
-    await sendProgress({ type: 'plan_chunk', chunk: planContent, totalLength: planContent.length });
-    await sendProgress({
-      type: 'plan_complete',
-      plan: {
-        content: planContent,
-        suggestedManifest: manifest,
-        summary: {
-          requirementAnalysis: 'E2E Mock：验证生成流程',
-          techStack: ['React', 'Tailwind CSS'],
-          architecture: '单页应用（Mock）',
-          totalFiles: manifest.length,
-          estimatedTime: 1,
-          risks: []
-        }
-      }
-    });
-    return;
-  }
-
-  if (generation.mode === 'manifest') {
-    await sendProgress({ type: 'manifest_complete', manifest, totalFiles: manifest.length });
-    return;
-  }
-
-  if (generation.mode === 'file') {
-    const totalFiles = Array.isArray(generation.manifest) && generation.manifest.length > 0
-      ? generation.manifest.length
-      : manifest.length;
-    const fileIndex = typeof generation.fileIndex === 'number' ? generation.fileIndex : 0;
-
-    const selected = Array.isArray(generation.manifest) && generation.manifest[fileIndex]
-      ? generation.manifest[fileIndex]
-      : manifest[Math.min(fileIndex, manifest.length - 1)];
-
-    const progress = totalFiles > 0 ? Math.round(((fileIndex + 1) / totalFiles) * 100) : 100;
-    const isComplete = fileIndex >= totalFiles - 1;
-
-    await sendProgress({
-      type: 'file_complete',
-      fileIndex,
-      totalFiles,
-      file: {
-        path: selected.path,
-        content: getE2eMockFileContent(selected.path),
-      },
-      progress,
-      isComplete
-    });
-    return;
-  }
-
-  // full 模式：输出 <file> 标签格式，兼容旧的前端解析逻辑
-  const generatedCode = manifest
-    .map((f) => `<file path="${f.path}">\n${getE2eMockFileContent(f.path)}\n</file>`)
-    .join('\n\n');
-
-  await sendProgress({ type: 'stream', raw: true, text: generatedCode });
-  await sendProgress({
-    type: 'complete',
-    generatedCode,
-    explanation: 'E2E Mock：已生成固定文件集合'
-  });
-}
-
-/**
  * 生成技术方案 (Plan Generation)
  * 目的：在代码生成之前，先让AI输出详细的技术实现方案
  *
@@ -4121,20 +4272,34 @@ X个文件 / Y分钟 / 复杂度
 	    let lastStreamError: unknown = undefined;
 
 	    // Streaming 输出方案
+	    // 🔧 修复：推理模型（如 DeepSeek R1）的主要输出在 reasoning channel
+	    // 需要同时发送 reasoning 内容到前端，否则前端会一直等待
+	    let pendingReasoningChunk = '';
 	    for await (const part of result.fullStream) {
 	      if (part.type === 'text-delta') {
 	        planContent += part.text;
 	        pendingChunk += part.text;
 	      } else if (part.type === 'reasoning-delta') {
-	        // 部分推理模型/兼容 API 可能只输出 reasoning channel（text 为空）
+	        // 推理模型的内容在 reasoning channel，需要实时发送到前端
 	        reasoningContent += part.text;
+	        pendingReasoningChunk += part.text;
 	      } else if (part.type === 'error') {
 	        lastStreamError = part.error;
 	      }
 
 	      // 每100ms或每50字符发送一次进度更新（打字机效果）
 	      const now = Date.now();
-	      if (pendingChunk && (now - lastFlushTime > 100 || pendingChunk.length > 50)) {
+	      // 🔧 修复：优先发送推理内容（推理模型大部分输出在这里）
+	      if (pendingReasoningChunk && (now - lastFlushTime > 100 || pendingReasoningChunk.length > 50)) {
+	        await sendProgress({
+	          type: 'plan_chunk',
+	          chunk: pendingReasoningChunk,
+	          totalLength: reasoningContent.length,
+	          isReasoning: true  // 标记为推理内容，前端可选择不同样式展示
+	        });
+	        pendingReasoningChunk = '';
+	        lastFlushTime = now;
+	      } else if (pendingChunk && (now - lastFlushTime > 100 || pendingChunk.length > 50)) {
 	        await sendProgress({
 	          type: 'plan_chunk',
 	          chunk: pendingChunk,
@@ -4143,6 +4308,16 @@ X个文件 / Y分钟 / 复杂度
 	        pendingChunk = '';
 	        lastFlushTime = now;
 	      }
+	    }
+
+	    // flush 剩余未发送的 reasoning chunk
+	    if (pendingReasoningChunk) {
+	      await sendProgress({
+	        type: 'plan_chunk',
+	        chunk: pendingReasoningChunk,
+	        totalLength: reasoningContent.length,
+	        isReasoning: true
+	      });
 	    }
 
 	    // flush 剩余未发送的 chunk，避免丢字

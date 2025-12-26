@@ -1,8 +1,8 @@
 import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
-import './globals.css';
+import '../styles/main.css';
 
-const inter = Inter({ subsets: ['latin'] });
+// 说明：避免在构建阶段从 Google Fonts 拉取字体资源（受限网络/沙箱会失败），这里改为使用系统字体栈。
+// Tailwind 配置里 `var(--font-inter, var(--font-sans))` 会自动回退到系统字体，无需额外处理。
 
 export const metadata: Metadata = {
   title: 'Lovable中文',
@@ -16,7 +16,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="zh-CN">
-      <body className={inter.className}>{children}</body>
+      <body className="font-sans antialiased">
+        {children}
+      </body>
     </html>
   );
 }

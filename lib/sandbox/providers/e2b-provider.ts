@@ -2,7 +2,7 @@ import { Sandbox } from '@e2b/code-interpreter';
 import { SandboxProvider, SandboxInfo, CommandResult } from '../types';
 // SandboxProviderConfig available through parent class
 import { appConfig } from '@/config/app.config';
-import { TAILWIND_CONFIG, INDEX_CSS, VITE_CONFIG, UTILS_JS } from './e2b-sandbox-setup';
+import { TAILWIND_CONFIG, INDEX_CSS, UTILS_JS, getViteConfig } from './e2b-sandbox-setup';
 
 export class E2BProvider extends SandboxProvider {
   private existingFiles: Set<string> = new Set();
@@ -255,6 +255,8 @@ export class E2BProvider extends SandboxProvider {
     };
 
 
+    const viteConfig = getViteConfig(appConfig.e2b.vitePort);
+
     // Write all files in a single Python script
     const setupScript = `
 import os
@@ -295,7 +297,8 @@ package_json = {
         "vite": "^4.3.9",
         "tailwindcss": "^3.3.0",
         "postcss": "^8.4.31",
-        "autoprefixer": "^10.4.16"
+        "autoprefixer": "^10.4.16",
+        "@tailwindcss/typography": "^0.5.16"
     }
 }
 
@@ -304,7 +307,7 @@ with open('/home/user/app/package.json', 'w') as f:
 print('✓ package.json')
 
 # Vite config
-vite_config = """${VITE_CONFIG}"""
+vite_config = """${viteConfig}"""
 
 with open('/home/user/app/vite.config.js', 'w') as f:
     f.write(vite_config)

@@ -55,6 +55,15 @@ pnpm dev  # or npm run dev / yarn dev
 
 Open [http://localhost:3000](http://localhost:3000)
 
+## 常见问题
+
+### 沙箱预览提示 `no service running on port 5173`
+
+这通常表示沙箱内的 Vite 没有监听预览端口（默认 `5173`）。请确认：
+
+- Vite 配置中的 `server.port` 与预览端口一致（默认 `5173`）
+- 启动命令包含 `--host 0.0.0.0`（例如：`pnpm dev --host 0.0.0.0`）
+
 ## 🚀 Performance Optimization
 
 ### For Chinese Users

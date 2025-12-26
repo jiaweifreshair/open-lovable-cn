@@ -31,6 +31,19 @@ class HeartbeatManager {
   private readonly CHECK_INTERVAL = 60 * 1000;
 
   /**
+   * 是否允许后端自动清理沙箱（默认关闭）
+   *
+   * 说明：
+   * - 生产环境中，“自动清理”会导致用户未确认就被销毁，进而出现预览 `Sandbox Not Found`
+   * - 只有在明确需要兜底清理“僵尸沙箱”时才开启（例如自建部署希望强制控费）
+   *
+   * 启用方式：
+   * - 设置环境变量 `OPEN_LOVABLE_SANDBOX_AUTOCLEANUP=1`
+   */
+  private readonly AUTO_CLEANUP_ENABLED =
+    process.env.OPEN_LOVABLE_SANDBOX_AUTOCLEANUP === '1';
+
+  /**
    * 启动心跳检查器
    */
   start(): void {
@@ -126,7 +139,17 @@ class HeartbeatManager {
       }
     }
 
-    // 清理超时的沙箱
+    // 默认不自动清理：避免用户未确认就销毁沙箱
+    if (!this.AUTO_CLEANUP_ENABLED) {
+      if (timeoutSandboxes.length > 0) {
+        console.log(
+          `[HeartbeatManager] ⚠️ 检测到 ${timeoutSandboxes.length} 个超时沙箱，但自动清理已关闭（如需开启请设置 OPEN_LOVABLE_SANDBOX_AUTOCLEANUP=1）。`
+        );
+      }
+      return;
+    }
+
+    // 开启自动清理时：清理超时的沙箱
     for (const sandboxId of timeoutSandboxes) {
       try {
         console.log(`[HeartbeatManager] 🧹 Cleaning up timeout sandbox: ${sandboxId}`);

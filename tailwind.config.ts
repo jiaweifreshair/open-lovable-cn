@@ -65,6 +65,10 @@ const themeConfig: Config = {
     "./styling-reference/ai-ready-website/components/**/*.{ts,tsx}",
     "./styling-reference/ai-ready-website/components-new/**/*.{ts,tsx}",
   ],
+  // `styles/fire.css` 已定义 `.container`（用于营销风格布局）。禁用 Tailwind 的 container 避免覆盖导致样式错位。
+  corePlugins: {
+    container: false,
+  },
   theme: {
     container: {
       center: true,
@@ -75,9 +79,20 @@ const themeConfig: Config = {
     },
     extend: {
       fontFamily: {
-        sans: ["var(--font-geist-sans)", "var(--font-inter)", ...defaultTheme.fontFamily.sans],
-        mono: ["var(--font-geist-mono)", ...defaultTheme.fontFamily.mono],
-        ascii: ["var(--font-roboto-mono)", ...defaultTheme.fontFamily.mono]
+        // 使用 CSS 变量时必须提供 fallback，避免变量缺失导致整个 font-family 声明失效
+        sans: [
+          "var(--font-geist-sans, var(--font-sans))",
+          "var(--font-inter, var(--font-sans))",
+          ...defaultTheme.fontFamily.sans,
+        ],
+        mono: [
+          "var(--font-geist-mono, var(--font-mono))",
+          ...defaultTheme.fontFamily.mono,
+        ],
+        ascii: [
+          "var(--font-roboto-mono, var(--font-mono))",
+          ...defaultTheme.fontFamily.mono,
+        ]
       },
       fontSize: {
         "title-h1": [
