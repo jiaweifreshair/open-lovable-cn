@@ -44,6 +44,11 @@ import {
   selectRelevantScrapeChunks,
   type ScrapeIndex
 } from '@/utils/scrape-index';
+// V2.0 视觉还原 - 设计规格提取和注入
+import {
+  formatDesignSpecsForPrompt,
+  type DesignSpecs
+} from '@/utils/extract-design-specs';
 
 /**
  * 生成阶段的输入长度兜底截断。
@@ -940,6 +945,86 @@ When the user references "the app", "the website", or "the site" without specifi
 
 If you see scraped websites in the context, you're working on a clone/recreation of that site.
 
+=== CRITICAL VISUAL FIDELITY RULES FOR WEBSITE CLONING (V2.0) ===
+
+When cloning a website with design specs provided, you MUST match the original site's visual design EXACTLY:
+
+1. COLOR MATCHING (MANDATORY):
+   - Use CSS variables from the design specs: var(--color-primary), var(--color-background), etc.
+   - Or use arbitrary Tailwind values: bg-[#1a365d] for exact hex colors
+   - NEVER use generic Tailwind colors (bg-blue-600) when design specs provide specific colors
+   - Add CSS variables to index.css :root {} block first
+
+2. BACKGROUND IMAGES (MANDATORY for Hero sections):
+   - If heroBackground.imageUrl is provided, you MUST use it
+   - Use inline style for background images: style={{ backgroundImage: 'url(IMAGE_URL)', backgroundSize: 'cover', backgroundPosition: 'center' }}
+   - Add a semi-transparent overlay for text readability if needed:
+     - Dark overlay: bg-black/50 or bg-gradient-to-b from-black/60 to-black/30
+     - Light overlay: bg-white/30
+   - If image fails to load, provide a fallback with a placeholder comment
+
+3. THEME DETECTION (CRITICAL):
+   - If theme is 'dark': Use dark backgrounds (bg-gray-900, bg-slate-900, bg-[#1a202c]) and light text (text-white, text-gray-100)
+   - If theme is 'light': Use light backgrounds (bg-white, bg-gray-50) and dark text (text-gray-900, text-black)
+   - NEVER flip the theme - match the original EXACTLY
+
+4. TYPOGRAPHY (IMPORTANT):
+   - Match heading sizes from design specs: text-5xl, text-6xl for hero headings
+   - Use font-bold or font-extrabold for impactful headings
+   - Apply font-family via CSS variable if specified
+
+5. COMPONENT STYLING:
+   - Match border-radius from design specs (rounded-lg, rounded-xl, rounded-2xl)
+   - Match box-shadow intensity (shadow-md, shadow-lg, shadow-xl, shadow-2xl)
+   - For cards floating on dark backgrounds, use bg-white with shadow-xl
+
+6. CSS VARIABLES SETUP:
+   - ALWAYS add CSS variables to index.css when design specs are provided:
+   \`\`\`css
+   @tailwind base;
+   @tailwind components;
+   @tailwind utilities;
+
+   :root {
+     --color-primary: #EXTRACTED_PRIMARY;
+     --color-secondary: #EXTRACTED_SECONDARY;
+     --color-background: #EXTRACTED_BG;
+     --color-text: #EXTRACTED_TEXT;
+     /* ... other variables from designSpecs.cssVariables */
+   }
+   \`\`\`
+   - Use these in components: className="bg-[var(--color-primary)]" or "text-[var(--color-text)]"
+
+7. HERO SECTION TEMPLATE (when background image is provided):
+   \`\`\`jsx
+   <section
+     className="relative min-h-screen flex items-center justify-center"
+     style={{
+       backgroundImage: 'url(HERO_IMAGE_URL)',
+       backgroundSize: 'cover',
+       backgroundPosition: 'center',
+     }}
+   >
+     {/* Dark overlay for text readability */}
+     <div className="absolute inset-0 bg-black/50" />
+
+     {/* Content */}
+     <div className="relative z-10 text-center text-white px-4">
+       <h1 className="text-5xl md:text-6xl lg:text-7xl font-bold mb-6">
+         {/* Hero title */}
+       </h1>
+       {/* Other content */}
+     </div>
+   </section>
+   \`\`\`
+
+8. FALLBACK STRATEGY:
+   - If background image URL might have CORS issues, add a comment with the original URL
+   - Provide a solid color fallback matching the theme
+   - Example: {/* Original image: https://example.com/hero.jpg - replace if needed */}
+
+=== END VISUAL FIDELITY RULES ===
+
 CRITICAL UI/UX RULES:
 - NEVER use emojis in any code, text, console logs, or UI elements
 - ALWAYS ensure responsive design using proper Tailwind classes (sm:, md:, lg:, xl:)
@@ -1357,7 +1442,7 @@ MORPH FAST APPLY MODE (EDIT-ONLY):
             contextParts.push('✅ ALWAYS: Include EVERY file you modified');
           } else if (!hasBackendFiles) {
             // First generation mode - make it beautiful!
-            contextParts.push('\n🎨 FIRST GENERATION MODE - CREATE SOMETHING BEAUTIFUL!');
+            contextParts.push('\nFIRST GENERATION MODE - CREATE SOMETHING BEAUTIFUL!');
             contextParts.push('\nThis is the user\'s FIRST experience. Make it impressive:');
             contextParts.push('1. **USE TAILWIND PROPERLY** - Use standard Tailwind color classes');
             contextParts.push('2. **NO PLACEHOLDERS** - Use real content, not lorem ipsum');
@@ -1399,6 +1484,29 @@ MORPH FAST APPLY MODE (EDIT-ONLY):
                   contextParts.push('\n📄 SCRAPED CONTENT EXCERPTS (use these for text/content):');
                   contextParts.push(chunks.join('\n\n---\n\n'));
                   console.log(`[generate-ai-code-stream] 📊 Injected ${chunks.length}/${scrapeIndex.chunks.length} chunks, ${totalChars} chars`);
+                }
+              }
+
+              // V2.0 视觉还原：注入设计规格到上下文
+              // 这是实现网站克隆视觉保真度的关键
+              if (scrapeIndex.designSpecs) {
+                const designSpecsText = formatDesignSpecsForPrompt(scrapeIndex.designSpecs);
+                if (designSpecsText) {
+                  contextParts.push('\nVISUAL DESIGN SPECIFICATIONS (CRITICAL FOR VISUAL FIDELITY):');
+                  contextParts.push(designSpecsText);
+                  console.log(`[generate-ai-code-stream] Injected design specs:`, {
+                    theme: scrapeIndex.designSpecs.theme,
+                    primaryColor: scrapeIndex.designSpecs.colors.primary,
+                    backgroundImages: scrapeIndex.designSpecs.backgroundImages?.length || 0,
+                    hasHeroBackground: !!scrapeIndex.designSpecs.heroBackground,
+                    confidence: scrapeIndex.designSpecs.metadata?.confidence
+                  });
+
+                  // 额外强调视觉还原的重要性
+                  contextParts.push('\n⚠️ VISUAL FIDELITY REQUIREMENT:');
+                  contextParts.push('The design specifications above are extracted from the original website.');
+                  contextParts.push('You MUST use these exact colors, fonts, and background images to achieve visual fidelity.');
+                  contextParts.push('DO NOT substitute with generic Tailwind colors (like blue-500) when specific hex values are provided.');
                 }
               }
             }
@@ -3500,6 +3608,8 @@ async function generateSingleFile(
   // 优先按需注入“与当前文件相关”的抓取分块，避免粗暴截断导致还原信息丢失
   const scrapeIndex = (context?.scrapeIndex ?? null) as ScrapeIndex | null;
   const siteProfileText = scrapeIndex?.profile ? formatScrapeProfileForPrompt(scrapeIndex.profile) : '';
+  // V2.0 视觉还原：提取设计规格
+  const designSpecsText = scrapeIndex?.designSpecs ? formatDesignSpecsForPrompt(scrapeIndex.designSpecs) : '';
   const relevantChunks = scrapeIndex
     ? selectRelevantScrapeChunks({
         scrapeIndex,
@@ -3659,10 +3769,20 @@ ${relevantChunksText ? `
 ${relevantChunksText}
 ` : ''}
 
+${designSpecsText ? `
+视觉设计规格（克隆网站时必须遵循）：
+${designSpecsText}
+
+视觉还原要求：
+- 使用上述精确颜色值（Tailwind arbitrary values 如 bg-[#hex]）
+- 使用上述字体配置和 CSS 变量
+- 背景图片使用提供的 URL，fallback 用纯色
+` : ''}
+
 原始需求：
 ${safePrompt}
 
-🎯 关键要求：
+关键要求：
 ${requirementLines.join('\n')}
 
 输出格式（严格遵守）：
@@ -3674,7 +3794,7 @@ ${isJsonFile ? '{ ... 完整的JSON内容 ... }' : '// 完整的文件代码'}
     const generateOnce = async (attempt: number) => {
       const extraStrict =
         attempt > 1
-          ? '\n⚠️ 上一次输出未按 <file> 格式返回，本次必须严格按格式输出，否则视为失败。'
+          ? '\n上一次输出未按 <file> 格式返回，本次必须严格按格式输出，否则视为失败。'
           : '';
 
       const result = await streamText({
@@ -3684,7 +3804,7 @@ ${isJsonFile ? '{ ... 完整的JSON内容 ... }' : '// 完整的文件代码'}
             role: 'system',
             content: systemPrompt + `
 
-🔥 单文件生成模式 - 特殊规则：
+单文件生成模式 - 特殊规则：
 1. 只生成一个文件：${filePath}
 2. 输出必须是且仅是一个 <file path="${filePath}">...</file>
 3. <file> 标签外不要输出任何文字、说明或 Markdown

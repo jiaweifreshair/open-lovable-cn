@@ -521,11 +521,24 @@ export function autoCompleteMissingFiles(
 
     // 🔥 根据文件类型生成默认内容
     if (targetPath.endsWith('.css') || targetPath.endsWith('.scss')) {
-      // CSS 文件：生成 Tailwind 基础样式
+      // CSS 文件：生成 Tailwind 基础样式（支持 CSS 变量扩展）
       const cssContent = targetPath.includes('index.css')
         ? `@tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* CSS 变量区域 - 用于视觉还原 */
+/* 当克隆网站时，AI 会在这里注入品牌颜色变量 */
+:root {
+  /* Brand Colors - 由设计规格自动生成 */
+  --color-primary: #3b82f6;
+  --color-secondary: #6366f1;
+  --color-background: #ffffff;
+  --color-text: #1f2937;
+
+  /* 可选：背景图片变量 */
+  /* --hero-bg-image: url('...'); */
+}
 
 /* 自动生成的基础样式文件 */
 `

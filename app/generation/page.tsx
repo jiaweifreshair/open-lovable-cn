@@ -224,13 +224,29 @@ function AISandboxPage() {
     let isMounted = true;
 
     const initializePage = async () => {
-      
+
       // First check URL parameters (from home page navigation)
       const urlParam = searchParams.get('url');
       const templateParam = searchParams.get('template');
       const detailsParam = searchParams.get('details');
-      
-      // Then check session storage as fallback
+      const sandboxIdParam = searchParams.get('sandbox');
+
+      // V2.1: 判断是否为全新访问（无任何 URL 参数）
+      const isFreshVisit = !sandboxIdParam && !urlParam && !templateParam && !detailsParam;
+
+      // 全新访问时，清除所有 sessionStorage 缓存，确保干净开始
+      if (isFreshVisit) {
+        console.log('[home] 全新访问，清除所有 sessionStorage 缓存');
+        sessionStorage.removeItem('targetUrl');
+        sessionStorage.removeItem('selectedStyle');
+        sessionStorage.removeItem('selectedModel');
+        sessionStorage.removeItem('additionalInstructions');
+        sessionStorage.removeItem('autoStart');
+        sessionStorage.removeItem('siteMarkdown');
+        sessionStorage.removeItem('websiteScreenshot');
+      }
+
+      // Then check session storage as fallback (only if not fresh visit)
       const storedUrl = urlParam || sessionStorage.getItem('targetUrl');
       const storedStyle = templateParam || sessionStorage.getItem('selectedStyle');
       const storedModel = sessionStorage.getItem('selectedModel');
@@ -320,7 +336,7 @@ function AISandboxPage() {
 
       // 优化流程：不在组件初始化时创建沙箱
       // 沙箱将在代码生成完成后创建，避免提前创建导致超时
-      const sandboxIdParam = searchParams.get('sandbox');
+      // sandboxIdParam 和 isFreshVisit 已在上面定义
       const persistedSandbox = restoreSandboxData();
 
       // 1) URL 上带 sandboxId：优先按 URL 恢复（配合 localStorage 保存的 url）
@@ -336,9 +352,14 @@ function AISandboxPage() {
           setSandboxData({ sandboxId: sandboxIdParam, url: inferredUrl });
           updateStatus('Sandbox active', true);
         }
-      } else if (persistedSandbox) {
-        // 2) URL 未带 sandboxId：恢复最近一次沙箱（便于刷新后继续使用）
-        console.log('[home] 未在 URL 中发现 sandboxId，恢复最近一次沙箱:', persistedSandbox.sandboxId);
+      } else if (isFreshVisit) {
+        // 🔥 全新访问：清除旧的沙箱缓存，确保干净开始
+        console.log('[home] 全新访问，清除旧沙箱缓存');
+        persistSandboxData(null);
+        setSandboxData(null);
+      } else if (persistedSandbox && !isFreshVisit) {
+        // 2) 有 URL 参数但无 sandboxId：恢复最近一次沙箱（便于刷新后继续使用）
+        console.log('[home] 有 URL 参数，恢复最近一次沙箱:', persistedSandbox.sandboxId);
         setSandboxData(persistedSandbox);
         updateStatus('Sandbox active', true);
       } else {
@@ -3974,7 +3995,7 @@ Tip: I automatically detect and install npm packages from your code imports (lik
           }
         }
         
-        // 构建“结构化概要 + 分块索引”：
+        // 构建"结构化概要 + 分块索引"：
         // - prompt 只携带概要（小而稳定）
         // - 详细片段由后端根据当前生成的文件按需注入（通过 context.scrapeIndex）
         const scrapeIndex = buildScrapeIndex({
@@ -3987,6 +4008,17 @@ Tip: I automatically detect and install npm packages from your code imports (lik
             maxHeadings: 24
           }
         });
+
+        // V2.0: 将设计规格添加到 scrapeIndex，用于视觉还原
+        if (scrapeData.designSpecs) {
+          scrapeIndex.designSpecs = scrapeData.designSpecs;
+          console.log('[generation] Design specs attached to scrapeIndex:', {
+            theme: scrapeData.designSpecs.theme,
+            primaryColor: scrapeData.designSpecs.colors?.primary,
+            hasHeroBackground: !!scrapeData.designSpecs.heroBackground
+          });
+        }
+
         scrapeIndexRef.current = scrapeIndex;
 
         const promptScrapeProfile = formatScrapeProfileForPrompt(scrapeIndex.profile);

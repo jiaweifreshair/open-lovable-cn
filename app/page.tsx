@@ -102,18 +102,20 @@ export default function HomePage() {
         if (selectedResult.markdown) {
           sessionStorage.setItem('siteMarkdown', selectedResult.markdown);
         }
-        router.push('/generation');
+        // 传递 URL 参数，避免被 generation 页面的缓存清除逻辑误判为全新访问
+        router.push(`/generation?url=${encodeURIComponent(selectedResult.url)}`);
       }, 500);
       return;
     }
-    
+
     // If it's a URL, go straight to generation
     if (isURL(inputValue)) {
       sessionStorage.setItem('targetUrl', inputValue);
       sessionStorage.setItem('selectedStyle', selectedStyle);
       sessionStorage.setItem('selectedModel', selectedModel);
       sessionStorage.setItem('autoStart', 'true');
-      router.push('/generation');
+      // 传递 URL 参数
+      router.push(`/generation?url=${encodeURIComponent(inputValue)}`);
     } else {
       // It's a search term, fade out if results exist, then search
       if (hasSearched && searchResults.length > 0) {

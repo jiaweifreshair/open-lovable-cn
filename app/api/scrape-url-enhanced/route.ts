@@ -9,10 +9,15 @@
  * 3. Playwright 无头浏览器（最终兜底）
  *
  * 自动降级策略：Firecrawl → Crawlee → Playwright
+ *
+ * V2.0 增强：视觉设计规格提取
+ * - 自动提取颜色方案、背景图片、字体配置等
+ * - 生成 CSS 变量，便于精确还原原网站视觉
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createScraperRouter } from '@/lib/scraper';
+import { extractDesignSpecs, type DesignSpecs } from '@/utils/extract-design-specs';
 
 export async function POST(request: NextRequest) {
   try {
@@ -79,7 +84,30 @@ export async function POST(request: NextRequest) {
       fullPageScreenshot: options.fullPageScreenshot || false,
       maxAge: options.maxAge || 3600000,
     });
-    
+
+    // V2.0: 提取视觉设计规格
+    let designSpecs: DesignSpecs | undefined;
+    try {
+      if (result.content && options.extractDesignSpecs !== false) {
+        console.log('[scrape-url-enhanced] Extracting design specs...');
+        designSpecs = extractDesignSpecs({
+          html: result.content,
+          url: result.url,
+          markdown: result.markdown,
+        });
+        console.log('[scrape-url-enhanced] Design specs extracted:', {
+          theme: designSpecs.theme,
+          primaryColor: designSpecs.colors.primary,
+          backgroundImages: designSpecs.backgroundImages.length,
+          heroBackground: designSpecs.heroBackground?.type,
+          confidence: designSpecs.metadata.confidence,
+        });
+      }
+    } catch (designSpecsError) {
+      console.warn('[scrape-url-enhanced] Failed to extract design specs:', designSpecsError);
+      // 设计规格提取失败不影响主流程
+    }
+
     // 构建响应
     const response = {
       success: true,
@@ -93,6 +121,8 @@ export async function POST(request: NextRequest) {
         url: result.url,
         screenshot: result.screenshot,
       },
+      // V2.0: 添加视觉设计规格
+      designSpecs,
       metadata: {
         scraper: result.scraper,
         fallbackUsed: result.fallbackUsed,
@@ -100,6 +130,8 @@ export async function POST(request: NextRequest) {
         timestamp: new Date(result.timestamp).toISOString(),
         contentLength: result.content.length,
         cached: result.metadata.cached || false,
+        hasDesignSpecs: !!designSpecs,
+        designSpecsConfidence: designSpecs?.metadata.confidence,
         ...result.metadata,
       },
       message: generateSuccessMessage(result),

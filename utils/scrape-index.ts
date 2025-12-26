@@ -3,13 +3,19 @@
  *
  * 目的：
  * - 克隆网站时，抓取内容可能达到几十万字符，直接塞进 LLM prompt 会触发输入硬上限（例如 98KB）。
- * - 通过“结构化概要 + 内容分块索引”，在 manifest 阶段只提供概要；在单文件生成阶段按需检索相关分块注入，
+ * - 通过"结构化概要 + 内容分块索引"，在 manifest 阶段只提供概要；在单文件生成阶段按需检索相关分块注入，
  *   既降低输入体积，又尽量保留关键细节（文案、结构、模块）。
  *
  * 说明：
  * - 这是确定性的本地处理，不调用模型做摘要（避免额外成本与不确定性）。
  * - 最终仍建议保留服务器端的长度兜底截断作为 last resort。
+ *
+ * V2.0 增强：
+ * - 新增 designSpecs 字段，存储视觉设计规格（颜色、字体、背景图片等）
+ * - 支持 AI 精确还原原网站视觉效果
  */
+
+import type { DesignSpecs } from './extract-design-specs';
 
 export interface ScrapeChunk {
   /** 分块唯一 ID（同一次 build 内唯一） */
@@ -48,6 +54,8 @@ export interface ScrapeIndex {
   profile: ScrapeProfile;
   /** 分块列表（用于单文件按需注入） */
   chunks: ScrapeChunk[];
+  /** V2.0: 视觉设计规格（颜色、字体、背景图片等） */
+  designSpecs?: DesignSpecs;
 }
 
 export interface BuildScrapeIndexOptions {
