@@ -62,4 +62,9 @@ export abstract class SandboxProvider {
     // Default implementation for restarting Vite
     throw new Error('restartViteServer not implemented for this provider');
   }
+
+  async setupMavenEnvironment(): Promise<void> {
+    // Default implementation for setting up Maven/JDK environment
+    throw new Error('setupMavenEnvironment not implemented for this provider');
+  }
 }

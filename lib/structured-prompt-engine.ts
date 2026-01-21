@@ -117,6 +117,12 @@ export function generateStructuredSystemPrompt(context: PromptContext): string {
 - Props 使用解构赋值
 - 避免过深的组件嵌套（最多3层）
 
+### Import 导入规范
+- ✅ 合并同源导入: import React, { useState, useEffect } from 'react'
+- ❌ 禁止重复导入: 不要多次从同一模块导入
+- ✅ 导入顺序: React → 第三方库 → 本地组件 → 样式
+- ❌ 禁止未使用的导入
+
 ### 文件完整性规范
 - 每个文件必须从第一行写到最后一行
 - 禁止使用 "..." 或 "// ..." 省略代码
@@ -203,6 +209,8 @@ App.jsx imports:
 ` : `
 ## 📤 第五部分：输出格式
 
+⚠�� **CRITICAL REQUIREMENT**: You MUST wrap ALL code in <file path="...">...</file> tags.
+
 ### 标准文件格式
 每个文件使用 <file> 标签包裹：
 \`\`\`
@@ -228,10 +236,17 @@ export default function Header() {
 </file>
 \`\`\`
 
+### ❌ 禁止的输出格式
+- ❌ 不要输出没有 <file> 标签的代码
+- ❌ 不要输出纯代码片段
+- ❌ 不要在 <file> 标签外添加解释性文本
+- ❌ 不要省略 <file> 标签
+
 ### 关键要求
 - 每个 <file> 必须有对应的 </file>
 - 文件内容必须完整，从第一行到最后一行
-- 不允许在文件内容中使用 "..." 省略`;
+- 不允许在文件内容中使用 "..." 省略
+- 所有代码必须在 <file> 标签内`;
 
   // === Part 7: 反面例子（什么不该做） ===
   const antiPatterns = `

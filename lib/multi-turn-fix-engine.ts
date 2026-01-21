@@ -6,9 +6,12 @@
  * 2. 完整性验证 - 检查文件是否被截断
  * 3. 自动修复 - 尝试自动补全缺失的文件
  * 4. 重试机制 - 失败时自动重试生成
+ * 5. AI语法修复 - 使用AI修复Babel/Vite语法错误
  */
 
 import { streamText, type LanguageModel } from 'ai';
+import { parseFrontendError } from './repair/error-parser';
+import { autoRepairCode } from './repair/ai-repair';
 
 export interface FileInfo {
   path: string;
@@ -16,11 +19,12 @@ export interface FileInfo {
 }
 
 export interface ValidationIssue {
-  type: 'missing_import' | 'truncated_file' | 'unclosed_tag' | 'syntax_error' | 'circular_dependency';
+  type: 'missing_import' | 'truncated_file' | 'unclosed_tag' | 'syntax_error' | 'circular_dependency' | 'babel_syntax_error';
   severity: 'error' | 'warning';
   file: string;
   message: string;
   suggestion?: string;
+  rawOutput?: string;
 }
 
 export interface FixResult {

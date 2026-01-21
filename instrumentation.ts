@@ -19,7 +19,8 @@ const NO_PROXY_DOMAINS = [
   'api.e2b.dev',
   'localhost',
   '127.0.0.1',
-  'cs.imds.ai',      // Gemini GCA API
+  'cs.imds.ai',      // Gemini GCA API (远程)
+  '127.0.0.1:8045',  // Gemini GCA API (本地)
   'api.qnaigc.com',  // 七牛云AI API
 ];
 
@@ -57,17 +58,27 @@ export async function register() {
           dispatch(options: UndiciDispatcher.DispatchOptions, handler: UndiciDispatcher.DispatchHandler): boolean {
             const origin = options.origin?.toString() || '';
 
+            // 提取hostname进行匹配
+            let hostname = '';
+            try {
+              const url = new URL(origin);
+              hostname = url.hostname;
+            } catch {
+              hostname = origin;
+            }
+
             // 检查是否需要bypass代理
             const shouldBypass = NO_PROXY_DOMAINS.some(domain => {
               if (domain.startsWith('.')) {
                 // 匹配子域名，如 .e2b.app 匹配 xxx.e2b.app
-                return origin.includes(domain);
+                return hostname.endsWith(domain) || hostname.endsWith(domain.substring(1));
               }
-              return origin.includes(domain);
+              // 精确匹配hostname或包含端口的情况
+              return hostname === domain || hostname.startsWith(domain + ':');
             });
 
             if (shouldBypass) {
-              console.log(`[Instrumentation] Bypassing proxy for: ${origin}`);
+              console.log(`[Instrumentation] Bypassing proxy for: ${origin} (hostname: ${hostname})`);
               return directAgent.dispatch(options, handler);
             }
 

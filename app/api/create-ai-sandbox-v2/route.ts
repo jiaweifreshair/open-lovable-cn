@@ -31,6 +31,8 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => ({}));
     const forceNew = body?.forceNew === true;
     const terminateExisting = body?.terminateExisting === true;
+    // 项目类型：vite（默认前端）| maven（Java/Maven项目）
+    const projectType = body?.projectType || body?.template || 'vite';
 
     // 并发保护：避免重复创建触发“互相清理”导致沙箱不存在
     if (global.sandboxCreationInProgress && global.sandboxCreationPromise) {
@@ -107,8 +109,14 @@ export async function POST(request: NextRequest) {
       const provider = SandboxFactory.create();
       const sandboxInfo = await provider.createSandbox();
 
-      console.log('[create-ai-sandbox-v2] Setting up Vite React app...');
-      await provider.setupViteApp();
+      // 根据项目类型设置环境
+      if (projectType === 'maven' || projectType === 'maven-jdk17' || projectType === 'java') {
+        console.log('[create-ai-sandbox-v2] Setting up Maven/JDK environment...');
+        await provider.setupMavenEnvironment();
+      } else {
+        console.log('[create-ai-sandbox-v2] Setting up Vite React app...');
+        await provider.setupViteApp();
+      }
 
       // Register with sandbox manager
       sandboxManager.registerSandbox(sandboxInfo.sandboxId, provider);
@@ -139,12 +147,17 @@ export async function POST(request: NextRequest) {
 
       console.log('[create-ai-sandbox-v2] Sandbox ready at:', sandboxInfo.url);
 
+      const setupMessage = (projectType === 'maven' || projectType === 'maven-jdk17' || projectType === 'java')
+        ? '沙箱已创建并初始化 Maven/JDK 环境'
+        : '沙箱已创建并初始化 Vite React 应用';
+
       return {
         success: true,
         sandboxId: sandboxInfo.sandboxId,
         url: sandboxInfo.url,
         provider: sandboxInfo.provider,
-        message: '沙箱已创建并初始化 Vite React 应用'
+        projectType: projectType,
+        message: setupMessage
       };
     })();
 

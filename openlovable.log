@@ -1,0 +1,32 @@
+
+> open-lovable@0.1.0 dev /Users/apus/Documents/UGit/open-lovable-cn
+> next dev
+
+ ⚠ Warning: Found multiple lockfiles. Selecting /Users/apus/pnpm-lock.yaml.
+   Consider removing the lockfiles at:
+   * /Users/apus/Documents/UGit/open-lovable-cn/pnpm-lock.yaml
+
+ ⚠ Port 3000 is in use by process 66875
+79157, using available port 3002 instead.
+   ▲ Next.js 15.4.3
+   - Local:        http://localhost:3002
+   - Network:      http://192.168.3.105:3002
+   - Environments: .env.local, .env
+
+ ✓ Starting...
+ ○ Compiling /instrumentation ...
+ ✓ Compiled /instrumentation in 524ms (148 modules)
+[Instrumentation] Configuring undici global proxy: http://127.0.0.1:7897
+[Instrumentation] NO_PROXY domains: .e2b.app, .e2b.dev, api.e2b.dev, localhost, 127.0.0.1, cs.imds.ai, 127.0.0.1:8045, api.qnaigc.com
+[Instrumentation] Smart proxy configured successfully (E2B domains bypassed)
+ ✓ Ready in 3.3s
+ ○ Compiling /api/health ...
+ ✓ Compiled /api/health in 1182ms (459 modules)
+ GET /api/health 200 in 1311ms
+ ○ Compiling / ...
+Browserslist: browsers data (caniuse-lite) is 6 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+ ✓ Compiled / in 7s (3026 modules)
+ HEAD / 200 in 7510ms
+ ✓ Compiled in 1536ms (1340 modules)

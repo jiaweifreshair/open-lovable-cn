@@ -1237,14 +1237,106 @@ export async function POST(request: NextRequest) {
               action: isUpdate ? 'updated' : 'created'
             });
           } catch (error) {
-            if (results.errors) {
-              results.errors.push(`Failed to create ${file.path}: ${(error as Error).message}`);
+            const errorMsg = (error as Error).message || '';
+
+            // 🔥 关键修复：检测沙箱过期错误，自动重建并重试
+            const isSandboxExpired = errorMsg.toLowerCase().includes('sandbox') &&
+              (errorMsg.toLowerCase().includes('not found') ||
+               errorMsg.toLowerCase().includes('no active') ||
+               errorMsg.toLowerCase().includes('timeout') ||
+               errorMsg.toLowerCase().includes('expired'));
+
+            if (isSandboxExpired) {
+              console.warn(`[apply-ai-code-stream] 沙箱在文件写入时过期，尝试重建沙箱并重试: ${file.path}`);
+              try {
+                // 重建沙箱
+                const { SandboxFactory } = await import('@/lib/sandbox/factory');
+                const newProvider = SandboxFactory.create();
+                const newInfo = await newProvider.createSandbox();
+                await newProvider.setupViteApp();
+
+                // 更新全局状态
+                sandboxManager.registerSandbox(newInfo.sandboxId, newProvider);
+                global.activeSandboxProvider = newProvider;
+                global.sandboxData = { sandboxId: newInfo.sandboxId, url: newInfo.url };
+                providerInstance = newProvider;
+
+                // 通知前端新的沙箱信息
+                await sendProgress({
+                  type: 'sandbox',
+                  sandboxId: newInfo.sandboxId,
+                  url: newInfo.url,
+                  provider: 'e2b',
+                  replacedSandboxId: replacedSandboxId || requestedSandboxId || undefined,
+                  message: '沙箱已过期，已自动重建'
+                });
+                replacedSandboxId = replacedSandboxId || requestedSandboxId || null;
+
+                console.log(`[apply-ai-code-stream] 沙箱重建成功: ${newInfo.sandboxId}，重试写入文件: ${file.path}`);
+
+                // 重试写入当前文件
+                let normalizedPath = file.path;
+                if (normalizedPath.startsWith('/')) {
+                  normalizedPath = normalizedPath.substring(1);
+                }
+                if (!normalizedPath.startsWith('src/') &&
+                  !normalizedPath.startsWith('public/') &&
+                  normalizedPath !== 'index.html' &&
+                  !configFiles.includes(normalizedPath.split('/').pop() || '')) {
+                  normalizedPath = 'src/' + normalizedPath;
+                }
+
+                const dirPath = normalizedPath.includes('/') ? normalizedPath.substring(0, normalizedPath.lastIndexOf('/')) : '';
+                if (dirPath) {
+                  await providerInstance.runCommand(`mkdir -p ${dirPath}`);
+                }
+
+                let retryContent = file.content;
+                if (file.path.endsWith('.jsx') || file.path.endsWith('.js') || file.path.endsWith('.tsx') || file.path.endsWith('.ts')) {
+                  retryContent = retryContent.replace(/import\s+['"]\.\/[^'"]+\.css['"];?\s*\n?/g, '');
+                  const { cleaned: cleanedContent } = detectAndCleanMixedChineseText(retryContent);
+                  retryContent = cleanedContent;
+                  const { fixed: fixedContent } = fixMisplacedImports(retryContent);
+                  retryContent = fixedContent;
+                }
+
+                await providerInstance.writeFile(normalizedPath, retryContent);
+                console.log(`[apply-ai-code-stream] 文件重试写入成功: ${normalizedPath}`);
+
+                filesWithContent.push({ path: normalizedPath, content: retryContent });
+                if (results.filesCreated) results.filesCreated.push(normalizedPath);
+                if (global.existingFiles) global.existingFiles.add(normalizedPath);
+
+                await sendProgress({
+                  type: 'file-complete',
+                  fileName: normalizedPath,
+                  action: 'created (after sandbox rebuild)'
+                });
+
+                // 继续下一个文件
+                continue;
+              } catch (rebuildError) {
+                console.error(`[apply-ai-code-stream] 沙箱重建失败:`, rebuildError);
+                if (results.errors) {
+                  results.errors.push(`Sandbox rebuild failed for ${file.path}: ${(rebuildError as Error).message}`);
+                }
+                await sendProgress({
+                  type: 'file-error',
+                  fileName: file.path,
+                  error: `沙箱重建失败: ${(rebuildError as Error).message}`
+                });
+              }
+            } else {
+              // 非沙箱过期错误，正常记录
+              if (results.errors) {
+                results.errors.push(`Failed to create ${file.path}: ${errorMsg}`);
+              }
+              await sendProgress({
+                type: 'file-error',
+                fileName: file.path,
+                error: errorMsg
+              });
             }
-            await sendProgress({
-              type: 'file-error',
-              fileName: file.path,
-              error: (error as Error).message
-            });
           }
         }
 

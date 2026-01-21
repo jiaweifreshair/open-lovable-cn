@@ -76,33 +76,60 @@ export class E2BProvider extends SandboxProvider {
       throw new Error('No active sandbox');
     }
 
-    
+    console.log(`[E2BProvider] Running command: ${command}`);
+
+    // 使用shell=True来正确处理复杂命令（包含&&、2>&1等shell语法）
+    // 不再使用command.split(' ')，因为这会错误拆分复杂命令
     const result = await this.sandbox.runCode(`
-      import subprocess
-      import os
+import subprocess
+import os
+import sys
 
-      os.chdir('/home/user/app')
-      result = subprocess.run(${JSON.stringify(command.split(' '))}, 
-                            capture_output=True, 
-                            text=True, 
-                            shell=False)
+# 设置工作目录
+os.chdir('/home/user/app')
 
-      print("STDOUT:")
-      print(result.stdout)
-      if result.stderr:
-          print("\\nSTDERR:")
-          print(result.stderr)
-      print(f"\\nReturn code: {result.returncode}")
+# 使用shell=True执行命令，支持shell语法（&&、|、2>&1等）
+process = subprocess.run(
+    ${JSON.stringify(command)},
+    capture_output=True,
+    text=True,
+    shell=True,
+    cwd='/home/user/app'
+)
+
+# 输出结果，使用特殊标记便于解析
+print("===STDOUT_START===")
+print(process.stdout)
+print("===STDOUT_END===")
+print("===STDERR_START===")
+print(process.stderr)
+print("===STDERR_END===")
+print(f"===EXIT_CODE==={process.returncode}")
     `);
-    
-    const output = result.logs.stdout.join('\n');
-    const stderr = result.logs.stderr.join('\n');
-    
+
+    // 解析输出
+    const rawOutput = result.logs.stdout.join('\n');
+    const rawStderr = result.logs.stderr.join('\n');
+
+    // 从标记中提取stdout
+    const stdoutMatch = rawOutput.match(/===STDOUT_START===\n?([\s\S]*?)===STDOUT_END===/);
+    const stdout = stdoutMatch ? stdoutMatch[1].trim() : rawOutput;
+
+    // 从标记中提取stderr
+    const stderrMatch = rawOutput.match(/===STDERR_START===\n?([\s\S]*?)===STDERR_END===/);
+    const stderr = stderrMatch ? stderrMatch[1].trim() : rawStderr;
+
+    // 从标记中提取exitCode
+    const exitCodeMatch = rawOutput.match(/===EXIT_CODE===(\d+)/);
+    const exitCode = exitCodeMatch ? parseInt(exitCodeMatch[1], 10) : (result.error ? 1 : 0);
+
+    console.log(`[E2BProvider] Command completed with exitCode: ${exitCode}`);
+
     return {
-      stdout: output,
+      stdout,
       stderr,
-      exitCode: result.error ? 1 : 0,
-      success: !result.error
+      exitCode,
+      success: exitCode === 0
     };
   }
 
@@ -421,6 +448,7 @@ else:
 import subprocess
 import os
 import time
+import socket
 
 os.chdir('/home/user/app')
 
@@ -441,10 +469,28 @@ process = subprocess.Popen(
 
 print(f'✓ Vite dev server started with PID: {process.pid}')
 print('Waiting for server to be ready...')
+
+# Check port availability
+def is_port_open(port, timeout=60):
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(1)
+            result = sock.connect_ex(('127.0.0.1', port))
+            sock.close()
+            if result == 0:
+                return True
+        except:
+            pass
+        time.sleep(2)
+    return False
+
+if is_port_open(${appConfig.e2b.vitePort}):
+    print(f'✓ Vite server is ready on port ${appConfig.e2b.vitePort}')
+else:
+    print(f'⚠ Warning: Port ${appConfig.e2b.vitePort} not available after 60s')
     `);
-    
-    // Wait for Vite to be ready
-    await new Promise(resolve => setTimeout(resolve, appConfig.e2b.viteStartupDelay));
     
     // Track initial files
     this.existingFiles.add('src/App.jsx');
@@ -457,12 +503,207 @@ print('Waiting for server to be ready...')
     this.existingFiles.add('postcss.config.js');
   }
 
+  /**
+   * 设置Maven/JDK开发环境
+   * 用于G3引擎的Java代码编译
+   *
+   * 安装内容：
+   * - OpenJDK 17
+   * - Maven 3.9.x
+   *
+   * @returns Promise<void>
+   */
+  async setupMavenEnvironment(): Promise<void> {
+    if (!this.sandbox) {
+      throw new Error('No active sandbox');
+    }
+
+    console.log('[E2BProvider] Setting up Maven/JDK environment...');
+
+    // Helper function to execute code with retry
+    const runCodeWithRetry = async (code: string, maxRetries = 3, delayMs = 2000) => {
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          return await this.sandbox!.runCode(code);
+        } catch (error: any) {
+          const isNetworkError = error.message?.includes('fetch failed') ||
+                                 error.message?.includes('ECONNRESET') ||
+                                 error.code === 'ECONNRESET';
+
+          if (isNetworkError && attempt < maxRetries) {
+            console.log(`[E2BProvider] Network error on attempt ${attempt}/${maxRetries}, retrying in ${delayMs}ms...`);
+            await new Promise(resolve => setTimeout(resolve, delayMs));
+            continue;
+          }
+          throw error;
+        }
+      }
+    };
+
+    // 使用SDKMAN安装JDK和Maven（更可靠的跨平台方式）
+    const installScript = `
+import subprocess
+import os
+import sys
+
+print('=== 开始安装Maven/JDK环境 ===')
+
+# 安装依赖
+print('正在安装依赖 (curl, unzip)...')
+result = subprocess.run(
+    ['apt-get', 'update'],
+    capture_output=True,
+    text=True
+)
+result = subprocess.run(
+    ['apt-get', 'install', '-y', 'curl', 'unzip', 'zip'],
+    capture_output=True,
+    text=True
+)
+if result.returncode != 0:
+    print(f'安装依赖警告: {result.stderr}')
+
+print('✓ 依赖安装完成')
+
+# 下载并安装JDK 17（使用Eclipse Temurin/Adoptium）
+print('\\n正在下载OpenJDK 17...')
+jdk_url = 'https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.9%2B9/OpenJDK17U-jdk_x64_linux_hotspot_17.0.9_9.tar.gz'
+jdk_dir = '/opt/java'
+os.makedirs(jdk_dir, exist_ok=True)
+
+result = subprocess.run(
+    ['curl', '-L', '-o', '/tmp/jdk.tar.gz', jdk_url],
+    capture_output=True,
+    text=True
+)
+if result.returncode != 0:
+    print(f'下载JDK失败: {result.stderr}')
+    sys.exit(1)
+
+print('正在解压JDK...')
+result = subprocess.run(
+    ['tar', '-xzf', '/tmp/jdk.tar.gz', '-C', jdk_dir, '--strip-components=1'],
+    capture_output=True,
+    text=True
+)
+if result.returncode != 0:
+    print(f'解压JDK失败: {result.stderr}')
+    sys.exit(1)
+
+print('✓ OpenJDK 17 安装完成')
+
+# 下载并安装Maven 3.9（使用清华镜像或官方存档）
+print('\\n正在下载Maven 3.9...')
+# 使用Apache存档URL（更稳定）
+mvn_url = 'https://archive.apache.org/dist/maven/maven-3/3.9.6/binaries/apache-maven-3.9.6-bin.tar.gz'
+mvn_dir = '/opt/maven'
+os.makedirs(mvn_dir, exist_ok=True)
+
+result = subprocess.run(
+    ['curl', '-L', '-o', '/tmp/maven.tar.gz', mvn_url],
+    capture_output=True,
+    text=True
+)
+if result.returncode != 0:
+    print(f'下载Maven失败: {result.stderr}')
+    sys.exit(1)
+
+print('正在解压Maven...')
+result = subprocess.run(
+    ['tar', '-xzf', '/tmp/maven.tar.gz', '-C', mvn_dir, '--strip-components=1'],
+    capture_output=True,
+    text=True
+)
+if result.returncode != 0:
+    print(f'解压Maven失败: {result.stderr}')
+    sys.exit(1)
+
+print('✓ Maven 3.9 安装完成')
+
+# 设置环境变量（通过profile）
+print('\\n正在配置环境变量...')
+profile_content = '''
+export JAVA_HOME=/opt/java
+export MAVEN_HOME=/opt/maven
+export PATH=$JAVA_HOME/bin:$MAVEN_HOME/bin:$PATH
+'''
+with open('/etc/profile.d/java-maven.sh', 'w') as f:
+    f.write(profile_content)
+
+# 同时添加到bashrc
+with open('/home/user/.bashrc', 'a') as f:
+    f.write(profile_content)
+
+print('✓ 环境变量已配置')
+
+# 创建符号链接确保PATH可用
+os.makedirs('/usr/local/bin', exist_ok=True)
+for cmd in ['java', 'javac', 'jar']:
+    src = f'/opt/java/bin/{cmd}'
+    dst = f'/usr/local/bin/{cmd}'
+    if os.path.exists(src) and not os.path.exists(dst):
+        os.symlink(src, dst)
+for cmd in ['mvn']:
+    src = f'/opt/maven/bin/{cmd}'
+    dst = f'/usr/local/bin/{cmd}'
+    if os.path.exists(src) and not os.path.exists(dst):
+        os.symlink(src, dst)
+
+print('✓ 符号链接已创建')
+
+# 验证安装
+print('\\n=== 验证安装 ===')
+java_result = subprocess.run(['/opt/java/bin/java', '-version'], capture_output=True, text=True)
+print(f'Java版本: {java_result.stderr.strip()}')
+
+mvn_result = subprocess.run(['/opt/maven/bin/mvn', '-version'], capture_output=True, text=True, env={**os.environ, 'JAVA_HOME': '/opt/java'})
+print(f'Maven版本: {mvn_result.stdout.strip()}')
+
+# 创建工作目录
+os.makedirs('/home/user/app/src/main/java', exist_ok=True)
+os.makedirs('/home/user/app/src/test/java', exist_ok=True)
+os.makedirs('/home/user/app/src/main/resources', exist_ok=True)
+print('\\n✓ Maven项目目录结构已创建')
+
+# 清理下载文件
+subprocess.run(['rm', '-f', '/tmp/jdk.tar.gz', '/tmp/maven.tar.gz'], capture_output=True)
+print('✓ 临时文件已清理')
+
+print('\\n=== Maven/JDK环境设置完成 ===')
+    `;
+
+    const result = await runCodeWithRetry(installScript);
+
+    const output = result.logs.stdout.join('\n');
+    const stderr = result.logs.stderr.join('\n');
+
+    console.log('[E2BProvider] Maven setup output:', output);
+    if (stderr) {
+      console.log('[E2BProvider] Maven setup stderr:', stderr);
+    }
+
+    // 检查是否安装成功
+    if (result.error) {
+      const errorMsg = typeof result.error === 'object'
+        ? JSON.stringify(result.error)
+        : String(result.error);
+      throw new Error(`Maven environment setup failed: ${errorMsg}`);
+    }
+
+    // 检查输出中是否有致命错误
+    if (output.includes('sys.exit(1)') || output.includes('安装错误') || output.includes('下载JDK失败') || output.includes('下载Maven失败')) {
+      throw new Error(`Maven environment setup failed. Output: ${output.substring(0, 500)}`);
+    }
+
+    console.log('[E2BProvider] Maven/JDK environment ready');
+  }
+
   async restartViteServer(): Promise<void> {
     if (!this.sandbox) {
       throw new Error('No active sandbox');
     }
 
-    
+
     await this.sandbox.runCode(`
 import subprocess
 import time

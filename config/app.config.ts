@@ -50,9 +50,9 @@ export const appConfig = {
   
   // AI Model Configuration
   ai: {
-    // Default AI model - 使用 Gemini 3 Pro (速度快、质量高、不易超时)
+    // Default AI model - 使用本地 Gemini 3 Pro High
     // DeepSeek R1 作为备用推理模型
-    defaultModel: 'gemini-3-pro-preview',
+    defaultModel: 'gemini-3-pro-high',
 
     // Available models - 精简版
     availableModels: [
@@ -68,8 +68,8 @@ export const appConfig = {
       // 🇨🇳 Kimi (七牛云托管)
       'kimi-k2',                               // Kimi K2
 
-      // 🚀 Gemini GCA Models (cs.imds.ai 代理) - 备用
-      'gemini-3-pro-preview',                  // Gemini 3 Pro Preview
+      // 🚀 Gemini GCA Models (本地代理)
+      'gemini-3-pro-high',                     // Gemini 3 Pro High (本地)
     ],
 
     // Model display names - 精简版
@@ -86,8 +86,8 @@ export const appConfig = {
       // 🇨🇳 Kimi (七牛云)
       'kimi-k2': '🇨🇳 Kimi K2',
 
-      // 🚀 Gemini GCA Models (备用)
-      'gemini-3-pro-preview': '🚀 Gemini 3 Pro ⭐',
+      // 🚀 Gemini GCA Models (本地)
+      'gemini-3-pro-high': '🚀 Gemini 3 Pro High ⭐ (本地)',
     } as Record<string, string>,
     
     // Model API configuration
@@ -96,8 +96,8 @@ export const appConfig = {
     // Temperature settings for non-reasoning models
     defaultTemperature: 0.7,
     
-    // Max tokens for code generation (DeepSeek R1 限制为 32768)
-    maxTokens: 32000,
+    // Max tokens for code generation (Gemini限制为16384)
+    maxTokens: 16000,
     
     // Max tokens for truncation recovery
     truncationRecoveryMaxTokens: 8000,

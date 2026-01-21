@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 3) 清理 legacy 全局状态（仅当与目标一致时）
+    // 3) 清理 legacy 全局状态
     if (global.activeSandboxProvider) {
       const legacyId = global.activeSandboxProvider?.getSandboxInfo?.()?.sandboxId;
       if (!killedSandboxId || legacyId === killedSandboxId) {
@@ -61,8 +61,13 @@ export async function POST(request: NextRequest) {
           console.error('[kill-sandbox] Failed to stop legacy sandbox:', e);
         }
         global.activeSandboxProvider = null;
-        global.sandboxData = null;
       }
+    }
+
+    // 4) 始终清理 global.sandboxData（避免下次 create 复用已销毁的沙箱）
+    if (global.sandboxData?.sandboxId === killedSandboxId) {
+      global.sandboxData = null;
+      console.log('[kill-sandbox] Cleared global.sandboxData for:', killedSandboxId);
     }
 
     // Clear existing files tracking

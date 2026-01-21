@@ -2,7 +2,12 @@
 export const geminiFetch = async (url: string | Request | URL, options?: RequestInit) => {
   const requestUrl = url.toString();
 
-  // Only intercept requests to the Gemini proxy
+  // Only intercept requests to the Gemini proxy (支持本地和远程代理)
+  // Antigravity Tools (127.0.0.1:8045) 已经返回标准 OpenAI 格式,直接透传
+  if (requestUrl.includes('127.0.0.1:8045')) {
+    return fetch(url, options);
+  }
+
   if (!requestUrl.includes('cs.imds.ai')) {
     return fetch(url, options);
   }

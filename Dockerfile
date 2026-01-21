@@ -64,6 +64,19 @@ WORKDIR /app
 # 使用 Playwright 镜像内置的 pwuser (uid=1000, gid=1000)
 # Playwright 镜像已包含此用户，无需创建新用户
 
+# 安装 Java 17 和 Maven（用于G3沙箱编译Java后端代码）
+# 注意：必须以root用户安装系统包
+USER root
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    openjdk-17-jdk \
+    maven && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# 验证安装
+RUN java -version && mvn -version
+
 # 安装 pnpm（运行时需要）
 RUN corepack enable && corepack prepare pnpm@latest --activate
 
