@@ -19,8 +19,9 @@ const NO_PROXY_DOMAINS = [
   'api.e2b.dev',
   'localhost',
   '127.0.0.1',
-  'cs.imds.ai',      // Gemini GCA API (远程)
-  '127.0.0.1:8045',  // Gemini GCA API (本地)
+  'aigateway.edgecloudapp.com', // ECA AI Gateway
+  'cs.imds.ai',                 // Gemini GCA API (远程)
+  '127.0.0.1:8045',             // Gemini GCA API (本地)
   'api.qnaigc.com',  // 七牛云AI API
 ];
 

@@ -50,9 +50,9 @@ export const appConfig = {
   
   // AI Model Configuration
   ai: {
-    // Default AI model - 使用本地 Gemini 3 Pro High
+    // Default AI model - 使用 ECA 网关 Gemini
     // DeepSeek R1 作为备用推理模型
-    defaultModel: 'gemini-3-pro-high',
+    defaultModel: 'gemini-3-pro-preview',
 
     // Available models - 精简版
     availableModels: [
@@ -68,8 +68,9 @@ export const appConfig = {
       // 🇨🇳 Kimi (七牛云托管)
       'kimi-k2',                               // Kimi K2
 
-      // 🚀 Gemini GCA Models (本地代理)
-      'gemini-3-pro-high',                     // Gemini 3 Pro High (本地)
+      // 🚀 ECA Gateway Models (Gemini/Claude)
+      'gemini-3-pro-preview',                  // Gemini 3 Pro Preview (ECA)
+      'claude-opus-4-5-20251101',              // Claude Opus 4.5 (ECA)
     ],
 
     // Model display names - 精简版
@@ -86,8 +87,9 @@ export const appConfig = {
       // 🇨🇳 Kimi (七牛云)
       'kimi-k2': '🇨🇳 Kimi K2',
 
-      // 🚀 Gemini GCA Models (本地)
-      'gemini-3-pro-high': '🚀 Gemini 3 Pro High ⭐ (本地)',
+      // 🚀 ECA Gateway Models
+      'gemini-3-pro-preview': '🚀 Gemini 3 Pro Preview ⭐ (ECA)',
+      'claude-opus-4-5-20251101': '🧠 Claude Opus 4.5 (ECA)',
     } as Record<string, string>,
     
     // Model API configuration

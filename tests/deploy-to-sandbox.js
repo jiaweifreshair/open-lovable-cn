@@ -35,7 +35,8 @@ async function deployToSandbox() {
       response: generatedCode,
       isEdit: false,
       packages: [],
-      sandboxId: sandboxData.sandboxId
+      sandboxId: sandboxData.sandboxId,
+      allowSandboxCreate: true
     })
   });
 

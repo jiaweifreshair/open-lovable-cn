@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { geminiFetch } from '../../../lib/gemini-fetch';
+import { createEcaGatewayFetch } from '@/lib/eca-gateway';
 import { createGroq } from '@ai-sdk/groq';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAI } from '@ai-sdk/openai';
@@ -208,29 +208,25 @@ const googleGenerativeAI = createGoogleGenerativeAI({
   baseURL: isUsingAIGateway ? aiGatewayBaseURL : undefined,
 });
 
-const DEFAULT_GEMINI_GCA_ENDPOINT = 'https://cs.imds.ai/api/v1';
+// ECA 网关默认地址：未配置环境变量时的兜底，避免 baseURL 为空导致请求失败。
+const DEFAULT_ECA_GATEWAY_ENDPOINT = 'https://aigateway.edgecloudapp.com/v1/6a346ca84941b743a3ea49cd6db8d004/xinbang01';
 
 /**
- * 规范化 Gemini GCA 的 OpenAI 兼容 endpoint。
- *
- * 常见误配：
- * - https://cs.imds.ai/gemini（应为 /api/v1）
- * - https://cs.imds.ai（应补全 /api/v1）
+ * 规范化 ECA AI Gateway 的 OpenAI 兼容 endpoint。
+ * - 去除末尾斜杠，避免 /chat/completions 拼接异常
  */
-function normalizeGeminiGCAEndpoint(rawEndpoint: string | undefined): string {
-  if (!rawEndpoint) return DEFAULT_GEMINI_GCA_ENDPOINT;
+function normalizeEcaGatewayEndpoint(rawEndpoint: string | undefined): string {
+  if (!rawEndpoint) return DEFAULT_ECA_GATEWAY_ENDPOINT;
 
-  const trimmed = rawEndpoint.trim().replace(/\/+$/, '');
-  if (!trimmed) return DEFAULT_GEMINI_GCA_ENDPOINT;
-
-  if (trimmed.endsWith('/gemini')) {
-    console.warn('[Gemini GCA] CODE_ASSIST_ENDPOINT 检测到 /gemini，已自动纠正为 /api/v1');
-    return trimmed.replace(/\/gemini$/, '/api/v1');
-  }
-
-  if (trimmed === 'https://cs.imds.ai') {
-    return DEFAULT_GEMINI_GCA_ENDPOINT;
-  }
+  // 兼容两种常见配置：
+  // 1) 文档形式：.../v1/{project}/{app}
+  // 2) OpenAI 兼容形式（误配）：.../v1/{project}/{app}/chat/completions
+  const trimmed = rawEndpoint
+    .trim()
+    .replace(/\/+$/, '')
+    .replace(/\/chat\/completions$/i, '')
+    .replace(/\/+$/, '');
+  if (!trimmed) return DEFAULT_ECA_GATEWAY_ENDPOINT;
 
   return trimmed;
 }
@@ -249,36 +245,47 @@ function getEnvPositiveInt(name: string, defaultValue: number): number {
 }
 
 /**
- * Gemini GCA 默认模型（用于未显式传 model 时的兜底，以及自动降级场景）。
+ * ECA 网关默认模型（用于未显式传 model 时的兜底，以及自动降级场景）。
  */
-function resolveGeminiGCADefaultModel(): string {
+function resolveEcaGatewayDefaultModel(): string {
   const model = process.env.GEMINI_MODEL;
   if (model && model.trim()) return model.trim();
   return 'gemini-3-pro-preview';
 }
 
-// Gemini GCA Provider (Google Cloud AI - OpenAI Compatible)
-// 使用 cs.imds.ai 或其他 OpenAI 兼容的 Gemini 代理服务
-// 正确的 endpoint: https://cs.imds.ai/api/v1 (不是 /gemini)
-const isUsingGeminiGCA = !!process.env.CODE_ASSIST_ENDPOINT && !!process.env.GOOGLE_CLOUD_ACCESS_TOKEN;
-const geminiGCAEndpoint = normalizeGeminiGCAEndpoint(process.env.CODE_ASSIST_ENDPOINT);
+// ECA AI Gateway (OpenAI Compatible)
+// 使用 EdgeCloud 的 Chat Completions 网关，统一承载 Gemini/Claude
+// 读取网关地址：优先新变量，兼容旧变量，保证历史配置可用。
+const rawEcaGatewayEndpoint =
+  process.env.ECA_GATEWAY_ENDPOINT ||
+  process.env.AIGATEWAY_URL ||
+  process.env.CODE_ASSIST_ENDPOINT;
+// 规范化后的网关地址：用于 OpenAI Compatible provider 的 baseURL。
+const ecaGatewayEndpoint = normalizeEcaGatewayEndpoint(rawEcaGatewayEndpoint);
+// 读取网关密钥：优先新变量，兼容旧变量，避免迁移期请求失败。
+const ecaGatewayApiKey =
+  process.env.ECA_GATEWAY_API_KEY ||
+  process.env.GOOGLE_CLOUD_ACCESS_TOKEN ||
+  process.env.AIGATEWAY_TOKEN;
+// 是否启用网关：只有在密钥可用时才启用，避免误路由。
+const isUsingEcaGateway = !!ecaGatewayApiKey;
 
-console.log('[DEBUG] Gemini GCA Setup:', {
-  endpoint: geminiGCAEndpoint,
-  hasToken: !!process.env.GOOGLE_CLOUD_ACCESS_TOKEN
+console.log('[DEBUG] ECA Gateway Setup:', {
+  endpoint: ecaGatewayEndpoint,
+  hasToken: !!ecaGatewayApiKey
 });
 
-const geminiGCAProvider = createOpenAICompatible({
-  name: 'gemini-gca',
-  apiKey: process.env.GOOGLE_CLOUD_ACCESS_TOKEN || '',
-  baseURL: geminiGCAEndpoint,
-  fetch: geminiFetch,
+const ecaGatewayProvider = createOpenAICompatible({
+  name: 'eca-gateway',
+  apiKey: ecaGatewayApiKey || '',
+  baseURL: ecaGatewayEndpoint,
+  fetch: createEcaGatewayFetch(),
 });
 
-console.log('[generate-ai-code-stream] Gemini GCA config:', {
-  isUsingGeminiGCA,
-  endpoint: process.env.CODE_ASSIST_ENDPOINT ? geminiGCAEndpoint : 'not set',
-  defaultModel: resolveGeminiGCADefaultModel(),
+console.log('[generate-ai-code-stream] ECA Gateway config:', {
+  isUsingEcaGateway,
+  endpoint: ecaGatewayEndpoint,
+  defaultModel: resolveEcaGatewayDefaultModel(),
 });
 
 // 七牛云AI / DashScope (阿里云通义千问) - 使用OpenAI Compatible Provider
@@ -354,7 +361,7 @@ export async function POST(request: NextRequest) {
 
     let model = typeof rawModel === 'string' ? rawModel.trim() : '';
     if (!model) {
-      model = isUsingGeminiGCA ? resolveGeminiGCADefaultModel() : 'deepseek-r1';
+      model = isUsingEcaGateway ? resolveEcaGatewayDefaultModel() : 'deepseek-r1';
     }
 
     console.log('[generate-ai-code-stream] Received request:');
@@ -1584,10 +1591,22 @@ MORPH FAST APPLY MODE (EDIT-ONLY):
         const isGoogle = model.startsWith('google/');
         const isOpenAI = model.startsWith('openai/');
         const isKimiGroq = model.startsWith('kimi-');
+        // Claude 纯模型名检测：用于识别 ECA 网关 Claude 路由与错误提示。
+        const isClaudeModel = model.startsWith('claude-');
+        const isEcaStyleModel = model.startsWith('gemini-') || model.startsWith('claude-');
 
-        // Gemini GCA 模型识别：gemini- 开头且配置了 GCA 环境变量
-        // 支持模型如：gemini-3-pro-preview, gemini-2.0-flash-exp 等
-        const isGeminiGCA = model.startsWith('gemini-') && isUsingGeminiGCA;
+        // 🚧 保护性校验：用户选择了 ECA 风格模型名，但未配置网关时，避免误路由到其他 provider 导致难以排查。
+        if (isEcaStyleModel && !isUsingEcaGateway) {
+          const msg = 'ECA 网关未配置：请设置 ECA_GATEWAY_ENDPOINT 与 ECA_GATEWAY_API_KEY（或兼容变量 CODE_ASSIST_ENDPOINT/GOOGLE_CLOUD_ACCESS_TOKEN），或改用 google/、anthropic/、openai/ 等前缀模型。';
+          await sendProgress({ type: 'error', message: msg });
+          throw new Error(msg);
+        }
+
+        // ECA 网关模型识别：gemini-/claude- 开头且配置了 ECA 网关
+        // 支持模型如：gemini-3-pro-preview、claude-opus-4-5-20251101 等
+        const isEcaGemini = model.startsWith('gemini-') && isUsingEcaGateway;
+        const isEcaClaude = isClaudeModel && isUsingEcaGateway;
+        const isEcaGatewayModel = isEcaGemini || isEcaClaude;
 
         // 中文模型识别：通义千问、DeepSeek、智谱 GLM、Kimi、Moonshot、gpt-oss-20b
         // 注意：gpt-oss-20b 是七牛云的开源模型，必须使用七牛云provider
@@ -1595,13 +1614,13 @@ MORPH FAST APPLY MODE (EDIT-ONLY):
 
         // 模型提供商路由优先级：
         // 1. Anthropic (Claude) - anthropic/ 前缀
-        // 2. Gemini GCA (cs.imds.ai) - gemini- 前缀且配置了 GCA 环境变量
+        // 2. ECA AI Gateway - gemini-/claude- 前缀且配置了网关
         // 3. 中文模型 (七牛云) - qwen/deepseek/glm 等
         // 4. OpenAI (GPT) - openai/ 前缀
         // 5. Google (原生 Gemini) - google/ 前缀
         // 6. 默认使用七牛云 provider
         const modelProvider = isAnthropic ? anthropic :
-                              (isGeminiGCA ? geminiGCAProvider :
+                              (isEcaGatewayModel ? ecaGatewayProvider :
                               (isChineseModel ? qiniuProvider :
                               (isOpenAI ? openai :
                               (isGoogle ? googleGenerativeAI : qiniuProvider))));
@@ -1610,8 +1629,8 @@ MORPH FAST APPLY MODE (EDIT-ONLY):
         let actualModel: string;
         if (isAnthropic) {
           actualModel = model.replace('anthropic/', '');
-        } else if (isGeminiGCA) {
-          // Gemini GCA 使用完整模型名，如 gemini-3-pro-preview
+        } else if (isEcaGatewayModel) {
+          // ECA 网关使用完整模型名，如 gemini-3-pro-preview
           actualModel = model;
         } else if (isOpenAI) {
           actualModel = model.replace('openai/', '');
@@ -1628,10 +1647,11 @@ MORPH FAST APPLY MODE (EDIT-ONLY):
 
         // 确定 provider 名称用于日志
         const providerName = isAnthropic ? 'Anthropic' :
-                             isGeminiGCA ? 'Gemini GCA (cs.imds.ai)' :
+                             isEcaGatewayModel ? 'ECA AI Gateway' :
                              isChineseModel ? 'Chinese Model (OpenAI Compatible)' :
                              isGoogle ? 'Google' :
-                             isOpenAI ? 'OpenAI' : 'Groq';
+                             isOpenAI ? 'OpenAI' :
+                             isClaudeModel ? 'Claude (未启用网关)' : 'Groq';
         console.log(`[generate-ai-code-stream] Using provider: ${providerName}, model: ${actualModel}`);
         console.log(`[generate-ai-code-stream] AI Gateway enabled: ${isUsingAIGateway}`);
         console.log(`[generate-ai-code-stream] Model string: ${model}`);
@@ -1920,8 +1940,8 @@ It's better to have 3 complete files than 10 incomplete files.`
           let retryCount = 0;
           let isContinuationStart = loopCount > 1; // 🔥 Flag to detect start of continuation
           const maxRetries = 2;
-          let fallbackToGeminiUsed = false;
-          let fallbackToDeepSeekUsed = false; // 🔄 双向 fallback：Gemini → DeepSeek
+          let fallbackToEcaUsed = false;
+          let fallbackToDeepSeekUsed = false; // 🔄 双向 fallback：ECA → DeepSeek
 
           // 流式生成超时控制：
           // - 首 token 超时：避免上游“无输出”导致前端一直卡住
@@ -2162,41 +2182,42 @@ ${continuationInstruction}
                                       errorMsg.includes('500') ||
                                       errorMsg.includes('502') ||
                                       errorMsg.includes('503') ||
+                                      errorMsg.includes('504') ||
                                       errorMsg.includes('API error') ||
                                       isTimeout;
 
               // 🔄 双向 Fallback 机制
-              // 1. 非 Gemini 模型 → Gemini GCA
-              const canFallbackToGemini = isRetryableError &&
-                                          isUsingGeminiGCA &&
-                                          !isGeminiGCA &&
-                                          !fallbackToGeminiUsed &&
-                                          !fallbackToDeepSeekUsed;
+              // 1. 非 ECA 模型 → ECA 网关
+              const canFallbackToEca = isRetryableError &&
+                                       isUsingEcaGateway &&
+                                       !isEcaGatewayModel &&
+                                       !fallbackToEcaUsed &&
+                                       !fallbackToDeepSeekUsed;
 
-              // 2. Gemini GCA → DeepSeek (反向 fallback)
+              // 2. ECA 网关 → DeepSeek (反向 fallback)
               const canFallbackToDeepSeek = isRetryableError &&
-                                            isGeminiGCA &&
+                                            isEcaGatewayModel &&
                                             !fallbackToDeepSeekUsed &&
-                                            !fallbackToGeminiUsed;
+                                            !fallbackToEcaUsed;
 
-              if ((retryCount < maxRetries && isRetryableError) || canFallbackToGemini || canFallbackToDeepSeek) {
+              if ((retryCount < maxRetries && isRetryableError) || canFallbackToEca || canFallbackToDeepSeek) {
                 retryCount++;
 
-                if (canFallbackToGemini) {
-                    console.log('[generate-ai-code-stream] ⚠️ Primary provider failed. Switching to Gemini GCA fallback...');
-                    const fallbackModel = resolveGeminiGCADefaultModel();
-                    streamOptions.model = geminiGCAProvider(fallbackModel);
+                if (canFallbackToEca) {
+                    console.log('[generate-ai-code-stream] ⚠️ Primary provider failed. Switching to ECA Gateway fallback...');
+                    const fallbackModel = resolveEcaGatewayDefaultModel();
+                    streamOptions.model = ecaGatewayProvider(fallbackModel);
                     actualModel = fallbackModel;
-                    fallbackToGeminiUsed = true;
+                    fallbackToEcaUsed = true;
                     if (retryCount > maxRetries) retryCount = maxRetries;
 
                     await sendProgress({
                       type: 'info',
-                      message: `模型切换：正在使用 Gemini GCA (${fallbackModel}) 重试...`
+                      message: `模型切换：正在使用 ECA 网关 (${fallbackModel}) 重试...`
                     });
                 } else if (canFallbackToDeepSeek) {
-                    // 🔄 Gemini 失败时切换到 DeepSeek
-                    console.log('[generate-ai-code-stream] ⚠️ Gemini GCA failed. Switching to DeepSeek fallback...');
+                    // 🔄 ECA 失败时切换到 DeepSeek
+                    console.log('[generate-ai-code-stream] ⚠️ ECA Gateway failed. Switching to DeepSeek fallback...');
                     const fallbackModel = 'deepseek-r1';
                     streamOptions.model = qiniuProvider(fallbackModel);
                     actualModel = fallbackModel;
@@ -2205,7 +2226,7 @@ ${continuationInstruction}
 
                     await sendProgress({
                       type: 'info',
-                      message: `模型切换：Gemini 不可用，正在使用 DeepSeek R1 重试...`
+                      message: `模型切换：ECA 不可用，正在使用 DeepSeek R1 重试...`
                     });
                 } else {
                     console.log(`[generate-ai-code-stream] Retrying in ${retryCount * 2} seconds...`);
@@ -2217,7 +2238,7 @@ ${continuationInstruction}
                 }
 
                 // If Groq fails, try switching to a fallback model (Old logic)
-                if (isGroqServiceError && retryCount === maxRetries && !fallbackToGeminiUsed && !fallbackToDeepSeekUsed) {
+                if (isGroqServiceError && retryCount === maxRetries && !fallbackToEcaUsed && !fallbackToDeepSeekUsed) {
                   console.log('[generate-ai-code-stream] Groq service unavailable, falling back to GPT-4');
                   streamOptions.model = openai('gpt-4-turbo');
                   actualModel = 'gpt-4-turbo';
@@ -2225,16 +2246,16 @@ ${continuationInstruction}
               } else {
                 // Final error, send to user
                 const finalErrorMsg = streamError.message || 'Unknown error';
-                const modelName = isGeminiGCA ? 'Gemini GCA' : isGoogle ? 'Gemini' : isAnthropic ? 'Claude' : isOpenAI ? 'GPT-5' : isKimiGroq ? 'Kimi (Groq)' : isChineseModel ? 'DeepSeek/Qwen' : 'AI';
+                const modelName = isEcaGatewayModel ? 'ECA (Gemini/Claude)' : isGoogle ? 'Gemini' : isAnthropic ? 'Claude' : isOpenAI ? 'GPT-5' : isKimiGroq ? 'Kimi (Groq)' : isChineseModel ? 'DeepSeek/Qwen' : isClaudeModel ? 'Claude' : 'AI';
                 await sendProgress({
                   type: 'error',
                   message: `${modelName} 生成失败: ${finalErrorMsg}`
                 });
 
-                if (isGeminiGCA || fallbackToGeminiUsed) {
+                if (isEcaGatewayModel || fallbackToEcaUsed) {
                   await sendProgress({
                     type: 'info',
-                    message: '提示：请检查 Gemini GCA 配置 (CODE_ASSIST_ENDPOINT, GOOGLE_CLOUD_ACCESS_TOKEN)'
+                    message: '提示：请检查 ECA 网关配置 (ECA_GATEWAY_ENDPOINT/ECA_GATEWAY_API_KEY 或 CODE_ASSIST_ENDPOINT/GOOGLE_CLOUD_ACCESS_TOKEN)'
                   });
                 }
 

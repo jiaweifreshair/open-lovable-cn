@@ -956,12 +956,21 @@ Tip: I automatically detect and install npm packages from your code imports (lik
           response: code,
           isEdit: isEdit,
           packages: pendingPackages,
-          sandboxId: effectiveSandboxData?.sandboxId // Pass the sandbox ID to ensure proper connection
+          sandboxId: effectiveSandboxData?.sandboxId, // Pass the sandbox ID to ensure proper connection
+          // 是否允许服务端在无沙箱时自动创建/重建，用于避免分析阶段误触发创建。
+          allowSandboxCreate: true
         })
       });
       
       if (!response.ok) {
-        throw new Error(`Failed to apply code: ${response.statusText}`);
+        // 优先使用服务端返回的错误信息，便于用户理解失败原因。
+        let errorMessage = response.statusText;
+        // 服务端错误体：用于提取更具体的失败原因。
+        const errorPayload = await response.json().catch(() => null);
+        if (errorPayload?.error) {
+          errorMessage = errorPayload.error;
+        }
+        throw new Error(`Failed to apply code: ${errorMessage}`);
       }
       
       // Handle streaming response
@@ -2064,6 +2073,21 @@ Tip: I automatically detect and install npm packages from your code imports (lik
               allow="clipboard-write"
               sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
             />
+
+            {/* 常驻“一键修复”按钮：当预览白屏但无显式报错时，允许用户手动触发后端诊断与兜底修复 */}
+            <button
+              onClick={smartRefreshPreview}
+              disabled={isSmartRefreshing}
+              className={`absolute bottom-4 right-4 bg-white/90 hover:bg-white text-gray-700 px-3 py-2 rounded-lg shadow-lg transition-all duration-200 hover:scale-105 flex items-center gap-2 z-20 ${
+                isSmartRefreshing ? 'opacity-60 cursor-not-allowed hover:scale-100' : ''
+              }`}
+              title="一键修复预览"
+            >
+              <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              <span className="text-xs font-medium">{isSmartRefreshing ? '修复中…' : '一键修复'}</span>
+            </button>
             
             {/* Package installation overlay - shows when installing packages or applying code */}
             {codeApplicationState.stage && codeApplicationState.stage !== 'complete' && (
@@ -2138,14 +2162,15 @@ Tip: I automatically detect and install npm packages from your code imports (lik
             <button
               onClick={smartRefreshPreview}
               disabled={isSmartRefreshing}
-              className={`absolute bottom-4 right-4 bg-white/90 hover:bg-white text-gray-700 p-2 rounded-lg shadow-lg transition-all duration-200 hover:scale-105 ${
+              className={`absolute bottom-4 right-4 bg-white/90 hover:bg-white text-gray-700 px-3 py-2 rounded-lg shadow-lg transition-all duration-200 hover:scale-105 flex items-center gap-2 ${
                 isSmartRefreshing ? 'opacity-60 cursor-not-allowed hover:scale-100' : ''
               }`}
-              title="Smart refresh sandbox"
+              title="一键修复预览"
             >
               <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
+              <span className="text-xs font-medium">一键修复</span>
             </button>
           </div>
         );
@@ -2189,6 +2214,30 @@ Tip: I automatically detect and install npm packages from your code imports (lik
     
     // Check for special commands
     const lowerMessage = message.toLowerCase().trim();
+    // 预览修复指令：允许用户在对话里直接触发智能修复。
+    const fixCommands = new Set([
+      '修复',
+      '修复预览',
+      '修复错误',
+      '修复bug',
+      '修复问题',
+      '一键修复',
+      '/fix',
+      'fix',
+      'fix preview',
+      'repair'
+    ]);
+
+    if (fixCommands.has(lowerMessage)) {
+      if (!sandboxData?.url) {
+        addChatMessage('当前还没有可修复的预览，请先完成一次生成。', 'system');
+        return;
+      }
+      addChatMessage('开始一键修复预览，稍后会自动刷新。', 'system');
+      await smartRefreshPreview();
+      return;
+    }
+
     if (lowerMessage === 'check packages' || lowerMessage === 'install packages' || lowerMessage === 'npm install') {
       if (!sandboxData) {
         // More helpful message - user might be trying to run this too early

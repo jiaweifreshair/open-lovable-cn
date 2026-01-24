@@ -7,14 +7,32 @@ import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { generateObject } from 'ai';
 import { z } from 'zod';
 // import type { FileManifest } from '@/types/file-manifest'; // Type is used implicitly through manifest parameter
-import { geminiFetch } from '../../../lib/gemini-fetch';
+import { createEcaGatewayFetch, isEcaGatewayHttpError } from '@/lib/eca-gateway';
 
 // Check if we're using Vercel AI Gateway
 const isUsingAIGateway = !!process.env.AI_GATEWAY_API_KEY;
 const aiGatewayBaseURL = 'https://ai-gateway.vercel.sh/v1';
 
-// Check if Gemini GCA is configured
-const isUsingGeminiGCA = !!process.env.CODE_ASSIST_ENDPOINT && !!process.env.GOOGLE_CLOUD_ACCESS_TOKEN;
+// ECA 网关默认地址：未显式配置时兜底，避免生成分析请求失败。
+const DEFAULT_ECA_GATEWAY_ENDPOINT = 'https://aigateway.edgecloudapp.com/v1/6a346ca84941b743a3ea49cd6db8d004/xinbang01';
+// 读取网关地址：优先新变量，兼容旧变量，保证历史配置可用。
+const rawEcaGatewayEndpoint =
+  process.env.ECA_GATEWAY_ENDPOINT ||
+  process.env.AIGATEWAY_URL ||
+  process.env.CODE_ASSIST_ENDPOINT;
+// 规范化后的网关地址：去掉末尾斜杠，并兼容误配的 /chat/completions 后缀。
+const ecaGatewayEndpoint = (rawEcaGatewayEndpoint || DEFAULT_ECA_GATEWAY_ENDPOINT)
+  .trim()
+  .replace(/\/+$/, '')
+  .replace(/\/chat\/completions$/i, '')
+  .replace(/\/+$/, '');
+// 读取网关密钥：优先新变量，兼容旧变量，避免迁移期请求失败。
+const ecaGatewayApiKey =
+  process.env.ECA_GATEWAY_API_KEY ||
+  process.env.GOOGLE_CLOUD_ACCESS_TOKEN ||
+  process.env.AIGATEWAY_TOKEN;
+// 是否启用网关：要求地址和密钥同时存在，避免误路由。
+const isUsingEcaGateway = !!ecaGatewayEndpoint && !!ecaGatewayApiKey;
 
 const groq = createGroq({
   apiKey: process.env.AI_GATEWAY_API_KEY ?? process.env.GROQ_API_KEY,
@@ -36,13 +54,12 @@ const googleGenerativeAI = createGoogleGenerativeAI({
   baseURL: isUsingAIGateway ? aiGatewayBaseURL : undefined,
 });
 
-// Gemini GCA Provider (Google Cloud AI - OpenAI Compatible)
-// 正确的 endpoint: https://cs.imds.ai/api/v1
-const geminiGCAProvider = createOpenAICompatible({
-  name: 'gemini-gca',
-  apiKey: process.env.GOOGLE_CLOUD_ACCESS_TOKEN || '',
-  baseURL: 'https://cs.imds.ai/api/v1',
-  fetch: geminiFetch,
+// ECA AI Gateway Provider (OpenAI Compatible)
+const ecaGatewayProvider = createOpenAICompatible({
+  name: 'eca-gateway',
+  apiKey: ecaGatewayApiKey || '',
+  baseURL: ecaGatewayEndpoint,
+  fetch: createEcaGatewayFetch(),
 });
 
 // Schema for the AI's search plan - not file selection!
@@ -118,12 +135,24 @@ export async function POST(request: NextRequest) {
     console.log('[analyze-edit-intent] File summary preview:', fileSummary.split('\n').slice(0, 5).join('\n'));
     
     // Select the appropriate AI model based on the request
+    // ECA 网关模型识别：gemini-/claude- 且网关可用时走同一路由。
+    const isEcaModel = (model.startsWith('gemini-') || model.startsWith('claude-')) && isUsingEcaGateway;
+    const isEcaStyleModel = model.startsWith('gemini-') || model.startsWith('claude-');
+
+    // 🚧 保护性校验：用户选择了 ECA 风格模型名，但未配置网关时，避免误路由到 Groq/其他 provider。
+    if (isEcaStyleModel && !isUsingEcaGateway) {
+      return NextResponse.json({
+        success: false,
+        error: 'ECA 网关未配置：请设置 ECA_GATEWAY_ENDPOINT 与 ECA_GATEWAY_API_KEY（或兼容变量 CODE_ASSIST_ENDPOINT/GOOGLE_CLOUD_ACCESS_TOKEN），或改用 google/ 或 anthropic/ 前缀模型。'
+      }, { status: 400 });
+    }
+
     let aiModel;
     if (model.startsWith('anthropic/')) {
       aiModel = anthropic(model.replace('anthropic/', ''));
-    } else if (model.startsWith('gemini-') && isUsingGeminiGCA) {
-      // Gemini GCA models (e.g., gemini-3-pro-preview)
-      aiModel = geminiGCAProvider(model);
+    } else if (isEcaModel) {
+      // ECA 网关模型（Gemini/Claude）
+      aiModel = ecaGatewayProvider(model);
     } else if (model.startsWith('openai/')) {
       if (model.includes('gpt-oss')) {
         aiModel = groq(model);
@@ -199,6 +228,17 @@ Create a search plan to find the exact code that needs to be modified. Include s
     
   } catch (error) {
     console.error('[analyze-edit-intent] Error:', error);
+
+    // ✅ 尽量透传上游错误码，便于前端区分 401/403/429 等场景。
+    if (isEcaGatewayHttpError(error)) {
+      return NextResponse.json({
+        success: false,
+        error: error.message,
+        requestId: error.details.requestId,
+        code: error.details.code || error.details.type,
+      }, { status: error.details.status });
+    }
+
     return NextResponse.json({
       success: false,
       error: (error as Error).message

@@ -1044,8 +1044,10 @@ export function validateCompleteness(files: FileInfo[]): ValidationIssue[] {
     // 检查括号匹配
     const openBraces = (content.match(/{/g) || []).length;
     const closeBraces = (content.match(/}/g) || []).length;
+    const braceDiff = openBraces - closeBraces;
 
-    if (openBraces > closeBraces + 2) {
+    // 识别轻微的花括号不匹配，避免漏掉“少一个 }”的语法错误。
+    if (braceDiff > 2) {
       issues.push({
         type: 'truncated_file',
         severity: 'error',
@@ -1053,19 +1055,53 @@ export function validateCompleteness(files: FileInfo[]): ValidationIssue[] {
         message: `文件可能被截断: ${openBraces} 个开括号, 只有 ${closeBraces} 个闭括号`,
         suggestion: '需要补全文件的剩余部分'
       });
+    } else if (braceDiff > 0) {
+      issues.push({
+        type: 'syntax_error',
+        severity: 'error',
+        file: file.path,
+        message: `文件缺少 ${braceDiff} 个闭合花括号 (})`,
+        suggestion: '补全缺失的 }'
+      });
+    } else if (braceDiff < 0) {
+      issues.push({
+        type: 'syntax_error',
+        severity: 'error',
+        file: file.path,
+        message: `文件存在多余的 ${Math.abs(braceDiff)} 个闭合花括号 (})`,
+        suggestion: '删除多余的 }'
+      });
     }
 
     // 检查圆括号匹配
     const openParens = (content.match(/\(/g) || []).length;
     const closeParens = (content.match(/\)/g) || []).length;
+    const parenDiff = openParens - closeParens;
 
-    if (openParens > closeParens + 2) {
+    // 识别轻微的圆括号不匹配，避免漏掉“少一个 )”的语法错误。
+    if (parenDiff > 2) {
       issues.push({
         type: 'truncated_file',
         severity: 'error',
         file: file.path,
         message: `文件可能被截断: ${openParens} 个开圆括号, 只有 ${closeParens} 个闭圆括号`,
         suggestion: '需要补全文件的剩余部分'
+      });
+    } else if (parenDiff > 0) {
+      issues.push({
+        type: 'syntax_error',
+        severity: 'error',
+        file: file.path,
+        message: `文件缺少 ${parenDiff} 个闭合圆括号 ())`,
+        suggestion: '补全缺失的 )'
+      });
+    } else if (parenDiff < 0) {
+      issues.push({
+        type: 'syntax_error',
+        severity: 'error',
+        file: file.path,
+        message: `文件存在多余的 ${Math.abs(parenDiff)} 个闭合圆括号 ())`,
+        suggestion: '删除多余的 )'
       });
     }
 

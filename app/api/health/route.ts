@@ -16,6 +16,17 @@ import { NextResponse } from 'next/server';
  */
 export async function GET() {
   try {
+    const hasEcaToken = !!(
+      process.env.ECA_GATEWAY_API_KEY ||
+      process.env.GOOGLE_CLOUD_ACCESS_TOKEN ||
+      process.env.AIGATEWAY_TOKEN
+    );
+    const hasEcaEndpointEnv = !!(
+      process.env.ECA_GATEWAY_ENDPOINT ||
+      process.env.AIGATEWAY_URL ||
+      process.env.CODE_ASSIST_ENDPOINT
+    );
+
     // 基础健康检查
     const healthCheck = {
       status: 'healthy',
@@ -32,7 +43,18 @@ export async function GET() {
         },
         // 检查 AI 服务配置
         ai: {
-          configured: !!(process.env.OPENAI_API_KEY && process.env.OPENAI_BASE_URL),
+          configured: !!(
+            process.env.AI_GATEWAY_API_KEY ||
+            hasEcaToken ||
+            process.env.OPENAI_API_KEY ||
+            process.env.ANTHROPIC_API_KEY ||
+            process.env.GEMINI_API_KEY ||
+            process.env.GROQ_API_KEY
+          ),
+          ecaGateway: {
+            hasToken: hasEcaToken,
+            hasEndpointEnv: hasEcaEndpointEnv,
+          },
         },
       },
     };
